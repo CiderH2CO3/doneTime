@@ -48,8 +48,12 @@
         <div id="table-activities" class="tab-panel active">
           <div class="panel-controls">
             <div class="control-group">
-              <label for="filterDate" title="完了時刻の日付で絞り込み">完了日</label>
-              <input id="filterDate" type="date" />
+              <label for="filterDateFrom" title="完了時刻の日付で絞り込み">完了日</label>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <input id="filterDateFrom" type="date" title="開始日" />
+                <span>〜</span>
+                <input id="filterDateTo" type="date" title="終了日" />
+              </div>
             </div>
             <div class="control-group">
               <label for="groupToggle" title="同じ作業内容を一つにまとめる">作業別に集計</label>

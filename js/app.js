@@ -233,7 +233,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   let settings = loadSettings();
 
   // UI elements for filter/group
-  const filterDateInput = document.getElementById('filterDate');
+  const filterDateFromInput = document.getElementById('filterDateFrom');
+  const filterDateToInput = document.getElementById('filterDateTo');
   const groupToggle = document.getElementById('groupToggle');
   const clearFilterBtn = document.getElementById('clearFilterBtn');
 
@@ -249,13 +250,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Render activities with current filter/grouping settings
   function renderActivities() {
-    const filterYMD = (filterDateInput && filterDateInput.value) ? filterDateInput.value : '';
+    const fromYMD = (filterDateFromInput && filterDateFromInput.value) ? filterDateFromInput.value : '';
+    const toYMD = (filterDateToInput && filterDateToInput.value) ? filterDateToInput.value : '';
     const doGroup = !!(groupToggle && groupToggle.checked);
     let rows = [];
 
-    // Apply date filter (by endTime local date)
-    const filtered = filterYMD
-      ? activitiesMaster.filter(a => toLocalYMD(a.endTime) === filterYMD)
+    // Apply date filter (by endTime local date) - supports range
+    const filtered = (fromYMD || toYMD)
+      ? activitiesMaster.filter(a => {
+          const d = toLocalYMD(a.endTime);
+          if (fromYMD && d < fromYMD) return false;
+          if (toYMD && d > toYMD) return false;
+          return true;
+        })
       : activitiesMaster.slice();
 
     if (doGroup) {
@@ -466,15 +473,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Wire filter/group controls
-  if (filterDateInput) {
-    filterDateInput.addEventListener('change', renderActivities);
+  if (filterDateFromInput) {
+    filterDateFromInput.addEventListener('change', () => {
+      // Auto-fill "to" with same day when empty to emulate one-day filter quickly
+      if (filterDateFromInput.value && !filterDateToInput.value) {
+        filterDateToInput.value = filterDateFromInput.value;
+      }
+      renderActivities();
+    });
+  }
+  if (filterDateToInput) {
+    filterDateToInput.addEventListener('change', renderActivities);
   }
   if (groupToggle) {
     groupToggle.addEventListener('change', renderActivities);
   }
   if (clearFilterBtn) {
     clearFilterBtn.addEventListener('click', () => {
-      if (filterDateInput) filterDateInput.value = '';
+      if (filterDateFromInput) filterDateFromInput.value = '';
+      if (filterDateToInput) filterDateToInput.value = '';
       // 併せて「作業別に集計」もオフにする
       if (groupToggle) groupToggle.checked = false;
       renderActivities();
