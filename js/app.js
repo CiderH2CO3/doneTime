@@ -201,6 +201,31 @@ async function deleteRecent(db, text) {
   return true;
 }
 
+// Seed default pinned suggestions (one-time)
+const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v1';
+async function seedPinnedDefaults(db) {
+  try {
+    if (localStorage.getItem(SEEDED_FLAG)) return;
+    const defaults = ['開始', '休憩'];
+    await withStore(db, STORES.recent, 'readwrite', (store) => {
+      defaults.forEach((text) => {
+        const getReq = store.get(text);
+        getReq.onsuccess = () => {
+          const exists = getReq.result;
+          if (!exists) {
+            store.put({ text, pinned: true, lastUsed: Date.now() });
+          }
+        };
+        // onerror: ignore, transaction will handle
+      });
+    });
+    localStorage.setItem(SEEDED_FLAG, '1');
+  } catch (e) {
+    // fail silently; feature is non-critical
+    console.warn('Failed to seed default pinned suggestions', e);
+  }
+}
+
 function buildOptionsFromRecent(recent) {
   const pinned = recent.filter(r => r.pinned).sort((a, b) => a.text.localeCompare(b.text));
   const unpinned = recent.filter(r => !r.pinned).sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
@@ -470,6 +495,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
   renderActivities();
 
+  // Ensure default pinned suggestions exist (one-time)
+  await seedPinnedDefaults(db);
   const recent = await getRecentAll(db);
   recentTable.clear().rows.add(recent).draw();
   buildOptionsFromRecent(recent);
