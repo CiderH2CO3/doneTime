@@ -1,0 +1,491 @@
+/*! HTML5 Boilerplate v9.0.1 | MIT License | https://html5boilerplate.com/ */
+
+/* main.css 3.0.0 | MIT License | https://github.com/h5bp/main.css#readme */
+/*
+ * What follows is the result of much research on cross-browser styling.
+ * Credit left inline and big thanks to Nicolas Gallagher, Jonathan Neal,
+ * Kroc Camen, and the H5BP dev community and team.
+ */
+
+/* ==========================================================================
+   Base styles: opinionated defaults
+   ========================================================================== */
+
+html {
+  color: #222;
+  font-size: 1em;
+  line-height: 1.4;
+}
+
+/* --- Theme tokens (custom) --- */
+:root{
+  --dtm-bg: #0f172a;            /* slate-900 */
+  --dtm-card: #111827;          /* gray-900 */
+  --dtm-surface: #0b1224;       /* deep surface */
+  --dtm-text: #e5e7eb;          /* gray-200 */
+  --dtm-muted: #94a3b8;         /* slate-400 */
+  --dtm-border: #1f2937;        /* gray-800 */
+  --dtm-accent: #22c55e;        /* green-500 */
+  --dtm-accent-strong: #16a34a; /* green-600 */
+  --dtm-accent-weak: rgba(34,197,94,0.15);
+  --dtm-focus: #60a5fa;         /* blue-400 */
+}
+
+body{
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: linear-gradient(180deg, var(--dtm-surface) 0%, var(--dtm-bg) 100%);
+  color: var(--dtm-text);
+  min-height: 100vh;
+}
+
+/* --- Header hero style --- */
+body > header{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: linear-gradient(135deg, rgba(15,23,42,0.9) 0%, rgba(2,6,23,0.9) 100%);
+  backdrop-filter: saturate(1.2) blur(6px);
+  -webkit-backdrop-filter: saturate(1.2) blur(6px);
+  border-bottom: 1px solid var(--dtm-border) !important;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.5);
+}
+
+/* Make the task input the visual focal point */
+#taskInput{
+  font-size: 1.1rem;
+  padding: 12px 14px !important;
+  border-radius: 12px;
+  border: 1px solid var(--dtm-border);
+  background: #0b1020;
+  color: var(--dtm-text);
+  outline: none;
+  box-shadow: 0 2px 0 rgba(255,255,255,0.02) inset, 0 0 0 2px transparent;
+  transition: box-shadow .2s ease, border-color .2s ease, background .2s ease;
+}
+
+#taskInput:focus{
+  border-color: var(--dtm-focus);
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.35);
+  background: #0c1428;
+}
+
+/* Primary action button */
+#saveBtn{
+  appearance: none;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 18px !important;
+  font-weight: 700;
+  letter-spacing: .02em;
+  background: linear-gradient(180deg, var(--dtm-accent) 0%, var(--dtm-accent-strong) 100%);
+  color: #062813;
+  box-shadow: 0 10px 20px rgba(34,197,94,0.25), inset 0 -2px 0 rgba(0,0,0,0.15);
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .2s ease, filter .2s ease;
+}
+
+#saveBtn:hover{ filter: brightness(1.05); }
+#saveBtn:active{ transform: translateY(1px); box-shadow: 0 6px 14px rgba(34,197,94,0.25), inset 0 -1px 0 rgba(0,0,0,0.2); }
+
+#saveStatus{
+  color: var(--dtm-accent);
+  font-weight: 600;
+}
+
+/* Controls area on the right */
+body > header > div{
+  color: var(--dtm-muted);
+}
+input[type="date"],
+input[type="checkbox"]{
+  accent-color: var(--dtm-accent);
+}
+
+/* --- Main container / Tabs --- */
+main{
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.tabs .tab-headers{
+  border-bottom: 1px solid var(--dtm-border) !important;
+}
+
+.tabs .tab-btn{
+  background: transparent;
+  color: var(--dtm-muted);
+  border: 0;
+  padding: 10px 14px;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+}
+
+.tabs .tab-btn.active{
+  color: var(--dtm-text);
+  background: #0e152a;
+  border: 1px solid var(--dtm-border);
+  border-bottom-color: transparent;
+}
+
+.tab-panel{
+  background: #0b1020;
+  border: 1px solid var(--dtm-border);
+  border-top: 0;
+  border-radius: 0 12px 12px 12px;
+  padding: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+/* --- DataTables tweaks --- */
+table.dataTable{ color: var(--dtm-text); }
+table.dataTable thead th{
+  background: #0e152a;
+  border-bottom: 1px solid var(--dtm-border) !important;
+}
+table.dataTable tbody tr{
+  background-color: transparent;
+}
+table.dataTable.display tbody tr:hover{
+  background-color: rgba(255,255,255,0.03);
+}
+table.dataTable.no-footer{ border-bottom: 1px solid var(--dtm-border); }
+
+.dataTables_wrapper .dataTables_paginate .paginate_button{
+  color: var(--dtm-muted) !important;
+}
+.dataTables_wrapper .dataTables_paginate .paginate_button.current{
+  color: var(--dtm-text) !important;
+  background: var(--dtm-accent-weak) !important;
+  border: 1px solid var(--dtm-accent) !important;
+}
+.dataTables_wrapper .dataTables_filter input{
+  background: #0b1020;
+  color: var(--dtm-text);
+  border: 1px solid var(--dtm-border);
+  border-radius: 8px;
+}
+
+/* Form labels */
+label[for="taskInput"]{ color: var(--dtm-muted); font-weight: 700 !important; }
+label[for="filterDate"], label[for="groupToggle"]{ color: var(--dtm-muted); }
+
+/* Small screens */
+@media (max-width: 640px){
+  #taskInput{ flex-basis: 100% !important; max-width: 100% !important; }
+  #saveBtn{ width: 100%; }
+}
+
+/* --- Controls inside activities tab --- */
+.panel-controls{
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+  border: 1px solid var(--dtm-border);
+  border-radius: 12px;
+}
+
+.panel-controls .control-group{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--dtm-border);
+  border-radius: 999px;
+  background: #0a0f20;
+}
+
+.panel-controls label{ color: var(--dtm-muted); font-weight: 600; }
+
+.panel-controls input[type="date"]{
+  appearance: none;
+  background: #0b1020;
+  color: var(--dtm-text);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 10px;
+  outline: none;
+  color-scheme: dark; /* better native controls on dark background */
+}
+
+.panel-controls input[type="date"]:focus{
+  border-color: var(--dtm-focus);
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.25);
+}
+
+/* Improve visibility of the calendar pick button (WebKit/Blink) */
+.panel-controls input[type="date"]::-webkit-calendar-picker-indicator{
+  /* 強めの明度・コントラストと彩度で暗背景でもくっきり表示 */
+  filter: brightness(1.4) contrast(1.6) saturate(1.6);
+  mix-blend-mode: difference;
+  opacity: 1;
+  cursor: pointer;
+  transition: filter .2s ease, transform .2s ease, opacity .2s ease;
+}
+
+.panel-controls input[type="date"]:hover::-webkit-calendar-picker-indicator,
+.panel-controls input[type="date"]:focus::-webkit-calendar-picker-indicator{
+  /* ホバー/フォーカス時は更に明るく、わずかに発光させる */
+  filter: brightness(1.65) contrast(1.85) saturate(1.85);
+  mix-blend-mode: difference;
+  opacity: 1;
+}
+
+.panel-controls input[type="checkbox"]{
+  width: 18px;
+  height: 18px;
+  accent-color: var(--dtm-accent);
+}
+
+.panel-controls .spacer{ flex: 1; }
+
+.btn-secondary{
+  appearance: none;
+  border: 1px solid var(--dtm-border);
+  background: #0b1020;
+  color: var(--dtm-text);
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+
+.btn-secondary:hover{
+  background: #0e152a;
+  border-color: #22314a;
+}
+
+.btn-secondary:active{
+  transform: translateY(1px);
+}
+
+/*
+ * Remove text-shadow in selection highlight:
+ * https://twitter.com/miketaylr/status/12228805301
+ *
+ * Customize the background color to match your design.
+ */
+
+::-moz-selection {
+  background: #b3d4fc;
+  text-shadow: none;
+}
+
+::selection {
+  background: #b3d4fc;
+  text-shadow: none;
+}
+
+/*
+ * A better looking default horizontal rule
+ */
+
+hr {
+  display: block;
+  height: 1px;
+  border: 0;
+  border-top: 1px solid #ccc;
+  margin: 1em 0;
+  padding: 0;
+}
+
+/*
+ * Remove the gap between audio, canvas, iframes,
+ * images, videos and the bottom of their containers:
+ * https://github.com/h5bp/html5-boilerplate/issues/440
+ */
+
+audio,
+canvas,
+iframe,
+img,
+svg,
+video {
+  vertical-align: middle;
+}
+
+/*
+ * Remove default fieldset styles.
+ */
+
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * Allow only vertical resizing of textareas.
+ */
+
+textarea {
+  resize: vertical;
+}
+
+/* ==========================================================================
+   Author's custom styles
+   ========================================================================== */
+
+/* ==========================================================================
+   Helper classes
+   ========================================================================== */
+
+/*
+ * Hide visually and from screen readers
+ */
+
+.hidden,
+[hidden] {
+  display: none !important;
+}
+
+/*
+ * Hide only visually, but have it available for screen readers:
+ * https://snook.ca/archives/html_and_css/hiding-content-for-accessibility
+ *
+ * 1. For long content, line feeds are not interpreted as spaces and small width
+ *    causes content to wrap 1 word per line:
+ *    https://medium.com/@jessebeach/beware-smushed-off-screen-accessible-text-5952a4c2cbfe
+ */
+
+.visually-hidden {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+  /* 1 */
+}
+
+/*
+ * Extends the .visually-hidden class to allow the element
+ * to be focusable when navigated to via the keyboard:
+ * https://www.drupal.org/node/897638
+ */
+
+.visually-hidden.focusable:active,
+.visually-hidden.focusable:focus {
+  clip: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  position: static;
+  white-space: inherit;
+  width: auto;
+}
+
+/*
+ * Hide visually and from screen readers, but maintain layout
+ */
+
+.invisible {
+  visibility: hidden;
+}
+
+/*
+ * Clearfix: contain floats
+ *
+ * The use of `table` rather than `block` is only necessary if using
+ * `::before` to contain the top-margins of child elements.
+ */
+
+.clearfix::before,
+.clearfix::after {
+  content: "";
+  display: table;
+}
+
+.clearfix::after {
+  clear: both;
+}
+
+/* ==========================================================================
+   EXAMPLE Media Queries for Responsive Design.
+   These examples override the primary ('mobile first') styles.
+   Modify as content requires.
+   ========================================================================== */
+
+@media only screen and (min-width: 35em) {
+  /* Style adjustments for viewports that meet the condition */
+}
+
+@media print,
+  (-webkit-min-device-pixel-ratio: 1.25),
+  (min-resolution: 1.25dppx),
+  (min-resolution: 120dpi) {
+  /* Style adjustments for high resolution devices */
+}
+
+/* ==========================================================================
+   Print styles.
+   Inlined to avoid the additional HTTP request:
+   https://www.phpied.com/delay-loading-your-print-css/
+   ========================================================================== */
+
+@media print {
+  *,
+  *::before,
+  *::after {
+    background: #fff !important;
+    color: #000 !important;
+    /* Black prints faster */
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  a,
+  a:visited {
+    text-decoration: underline;
+  }
+
+  a[href]::after {
+    content: " (" attr(href) ")";
+  }
+
+  abbr[title]::after {
+    content: " (" attr(title) ")";
+  }
+
+  /*
+   * Don't show links that are fragment identifiers,
+   * or use the `javascript:` pseudo protocol
+   */
+  a[href^="#"]::after,
+  a[href^="javascript:"]::after {
+    content: "";
+  }
+
+  pre {
+    white-space: pre-wrap !important;
+  }
+
+  pre,
+  blockquote {
+    border: 1px solid #999;
+    page-break-inside: avoid;
+  }
+
+  tr,
+  img {
+    page-break-inside: avoid;
+  }
+
+  p,
+  h2,
+  h3 {
+    orphans: 3;
+    widows: 3;
+  }
+
+  h2,
+  h3 {
+    page-break-after: avoid;
+  }
+}
+

@@ -1,0 +1,80 @@
+<!doctype html>
+<html class="no-js" lang="">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DoneTime Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <meta name="description" content="">
+
+  <meta property="og:title" content="">
+  <meta property="og:type" content="">
+  <meta property="og:url" content="">
+  <meta property="og:image" content="">
+  <meta property="og:image:alt" content="">
+
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.png">
+
+  <link rel="manifest" href="site.webmanifest">
+  <meta name="theme-color" content="#fafafa">
+
+  <link href="https://cdn.datatables.net/v/dt/dt-2.3.4/datatables.min.css" rel="stylesheet" integrity="sha384-pmGS6IIcXhAVIhcnh9X/mxffzZNHbuxboycGuQQoP3pAbb0SwlSUUHn2v22bOenI" crossorigin="anonymous">
+
+  <script src="https://code.jquery.com/jquery-3.7.1.js"></script>
+  <script src="https://cdn.datatables.net/v/dt/dt-2.3.4/datatables.min.js" integrity="sha384-X2pTSfom8FUa+vGQ+DgTCSyBZYkC1RliOduHa0X96D060s7Q//fnOh3LcazRNHyo" crossorigin="anonymous"></script>
+
+</head>
+
+<body>
+  <header style="padding: 12px; border-bottom: 1px solid #ddd; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <label for="taskInput" style="font-weight:600;">作業内容</label>
+    <input id="taskInput" list="taskOptions" type="text" placeholder="作業内容を入力" style="flex: 1 1 280px; max-width: 520px; padding:8px;" />
+    <datalist id="taskOptions"></datalist>
+    <button id="saveBtn" style="padding:8px 14px;">保存</button>
+    <span id="saveStatus" style="margin-left:8px; color:#2f7; font-size:0.9em;"></span>
+  </header>
+
+  <main style="padding: 12px;">
+    <div class="tabs">
+      <div class="tab-headers" style="display:flex; gap:8px; margin-bottom:10px;">
+        <button class="tab-btn active" data-tab="table-activities">時間管理</button>
+        <button class="tab-btn" data-tab="table-recent">入力候補</button>
+      </div>
+      <div class="tab-panels">
+        <div id="table-activities" class="tab-panel active">
+          <div class="panel-controls">
+            <div class="control-group">
+              <label for="filterDate" title="完了時刻の日付で絞り込み">完了日</label>
+              <input id="filterDate" type="date" />
+            </div>
+            <div class="control-group">
+              <label for="groupToggle" title="同じ作業内容を一つにまとめる">作業別に集計</label>
+              <input id="groupToggle" type="checkbox" />
+            </div>
+            <div class="spacer"></div>
+            <button id="clearFilterBtn" class="btn-secondary" title="フィルタ解除">解除</button>
+          </div>
+          <table id="activitiesTable" class="display" style="width:100%"></table>
+        </div>
+        <div id="table-recent" class="tab-panel" style="display:none;">
+          <table id="recentTable" class="display" style="width:100%"></table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(console.error);
+      });
+    }
+  </script>
+
+</body>
+
+</html>
