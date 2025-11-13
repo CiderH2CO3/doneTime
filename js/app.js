@@ -231,6 +231,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activitiesMaster = [];
   // Settings state
   let settings = loadSettings();
+  // CSVエクスポートは DataTables Buttons を使用するため、個別保持は不要
 
   // UI elements for filter/group
   const filterDateFromInput = document.getElementById('filterDateFrom');
@@ -335,7 +336,44 @@ document.addEventListener('DOMContentLoaded', async () => {
       { title: '作業時間', data: 'duration' },
     ],
     order: [[2, 'desc']],
-    pageLength: 10
+    pageLength: 10,
+    // DataTables v2 layout API: Buttons を有効化（ツールバーはCSSで非表示にする）
+    layout: {
+      topStart: {
+        buttons: [
+          {
+            extend: 'csvHtml5',
+            text: 'CSV',
+            bom: true,
+            exportOptions: {
+              // 表示されている列を出力
+              columns: [0, 1, 2, 3],
+              // HTML（リンク）をプレーンテキスト化
+              format: {
+                body: function (data/*, row, column, node */) {
+                  if (data == null) return '';
+                  const s = String(data);
+                  // タグ除去してテキスト化
+                  return s.replace(/<[^>]*>/g, '');
+                }
+              }
+            },
+            // ファイル名（timestamp付き）
+            filename: function () {
+              const ts = new Date();
+              const y = ts.getFullYear();
+              const m = String(ts.getMonth() + 1).padStart(2, '0');
+              const d = String(ts.getDate()).padStart(2, '0');
+              const hh = String(ts.getHours()).padStart(2, '0');
+              const mm = String(ts.getMinutes()).padStart(2, '0');
+              const ss = String(ts.getSeconds()).padStart(2, '0');
+              const mode = (groupToggle && groupToggle.checked) ? 'grouped' : 'detail';
+              return `activities_${mode}_${y}${m}${d}_${hh}${mm}${ss}`;
+            }
+          }
+        ]
+      }
+    }
   });
 
   const recentTable = new DataTable('#recentTable', {
@@ -495,6 +533,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 併せて「作業別に集計」もオフにする
       if (groupToggle) groupToggle.checked = false;
       renderActivities();
+    });
+  }
+
+  const downloadBtn = document.getElementById('downloadCsvBtn');
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+      // DataTables Buttons の CSV ボタンを発火
+      activitiesTable.button('.buttons-csv').trigger();
     });
   }
 });

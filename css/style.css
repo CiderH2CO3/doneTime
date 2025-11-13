@@ -107,6 +107,11 @@ main{
   margin: 0 auto;
 }
 
+/* DataTables Buttons のデフォルトツールバーは自前ボタンと重複するため非表示 */
+#activitiesTable_wrapper .dt-buttons {
+  display: none;
+}
+
 .tabs .tab-headers{
   border-bottom: 1px solid var(--dtm-border) !important;
 }

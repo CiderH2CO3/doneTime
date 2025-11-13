@@ -21,10 +21,15 @@
   <link rel="manifest" href="site.webmanifest">
   <meta name="theme-color" content="#fafafa">
 
-  <link href="https://cdn.datatables.net/v/dt/dt-2.3.4/datatables.min.css" rel="stylesheet" integrity="sha384-pmGS6IIcXhAVIhcnh9X/mxffzZNHbuxboycGuQQoP3pAbb0SwlSUUHn2v22bOenI" crossorigin="anonymous">
+  <!-- DataTables core -->
+  <link href="https://cdn.datatables.net/2.3.4/css/dataTables.dataTables.min.css" rel="stylesheet">
+  <!-- DataTables Buttons extension (CSV export) -->
+  <link href="https://cdn.datatables.net/buttons/3.1.1/css/buttons.dataTables.min.css" rel="stylesheet">
 
   <script src="https://code.jquery.com/jquery-3.7.1.js"></script>
-  <script src="https://cdn.datatables.net/v/dt/dt-2.3.4/datatables.min.js" integrity="sha384-X2pTSfom8FUa+vGQ+DgTCSyBZYkC1RliOduHa0X96D060s7Q//fnOh3LcazRNHyo" crossorigin="anonymous"></script>
+  <script src="https://cdn.datatables.net/2.3.4/js/dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/3.1.1/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/3.1.1/js/buttons.html5.min.js"></script>
 
 </head>
 
@@ -60,6 +65,7 @@
               <input id="groupToggle" type="checkbox" />
             </div>
             <div class="spacer"></div>
+            <button id="downloadCsvBtn" class="btn-secondary" title="表示中の一覧をCSVでダウンロード" style="margin-right:8px;">CSVダウンロード</button>
             <button id="clearFilterBtn" class="btn-secondary" title="フィルタ解除">解除</button>
           </div>
           <table id="activitiesTable" class="display" style="width:100%"></table>
