@@ -195,6 +195,12 @@ async function getRecentAll(db) {
   return withStore(db, STORES.recent, 'readonly', (store) => store.getAll());
 }
 
+async function deleteRecent(db, text) {
+  if (!text) return false;
+  await withStore(db, STORES.recent, 'readwrite', (store) => store.delete(text));
+  return true;
+}
+
 function buildOptionsFromRecent(recent) {
   const pinned = recent.filter(r => r.pinned).sort((a, b) => a.text.localeCompare(b.text));
   const unpinned = recent.filter(r => !r.pinned).sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
@@ -330,6 +336,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     columns: [
       { title: 'ピン', data: 'pinned', render: (d) => `<input type="checkbox" ${d ? 'checked' : ''}>`, orderable: false },
       { title: '直近の作業入力内容', data: 'text' },
+      { title: '操作', data: null, orderable: false, render: () => `
+          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">削除</button>
+        ` },
     ],
     order: [[0, 'desc']],
     pageLength: 10
@@ -384,6 +393,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       recentTable.clear().rows.add(updated).draw(false);
       buildOptionsFromRecent(updated);
     }
+  });
+
+  // Handle delete button in recentTable
+  document.querySelector('#recentTable').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.btn-delete');
+    if (!btn) return;
+    const tr = btn.closest('tr');
+    const row = recentTable.row(tr);
+    const data = row.data();
+    const text = data && data.text;
+    if (!text) return;
+    const ok = confirm(`「${text}」を入力候補から削除しますか？`);
+    if (!ok) return;
+    await deleteRecent(db, text);
+    const updated = await getRecentAll(db);
+    recentTable.clear().rows.add(updated).draw(false);
+    buildOptionsFromRecent(updated);
   });
 
   // Save button logic
