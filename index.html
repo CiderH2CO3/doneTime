@@ -65,10 +65,38 @@
               <input id="groupToggle" type="checkbox" />
             </div>
             <div class="spacer"></div>
+            <button id="manualAddBtn" class="btn-secondary" title="行を手動追加" style="margin-right:8px;">手動追加</button>
             <button id="downloadCsvBtn" class="btn-secondary" title="表示中の一覧をCSVでダウンロード" style="margin-right:8px;">CSVダウンロード</button>
             <button id="clearFilterBtn" class="btn-secondary" title="フィルタ解除">解除</button>
           </div>
           <table id="activitiesTable" class="display" style="width:100%"></table>
+          <!-- 編集/追加モーダル -->
+          <div id="activityModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:1000;">
+            <div style="background:#0b1020; color:#e5e7eb; padding:16px; border-radius:12px; width:min(560px, 92vw); border:1px solid #1f2937; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+              <h3 id="activityModalTitle" style="margin:0 0 10px; font-size:1.1rem;">アクティビティ編集</h3>
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                <label style="display:flex; flex-direction:column; gap:6px;">
+                  <span>作業内容</span>
+                  <input id="modalTask" type="text" list="taskOptions" placeholder="作業内容を入力" style="padding:8px; border-radius:8px; border:1px solid #1f2937; background:#0c1428; color:#e5e7eb;" />
+                </label>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                  <label style="display:flex; flex-direction:column; gap:6px;">
+                    <span>開始時刻</span>
+                    <input id="modalStart" type="datetime-local" style="padding:8px; border-radius:8px; border:1px solid #1f2937; background:#0c1428; color:#e5e7eb;" />
+                  </label>
+                  <label style="display:flex; flex-direction:column; gap:6px;">
+                    <span>完了時刻</span>
+                    <input id="modalEnd" type="datetime-local" style="padding:8px; border-radius:8px; border:1px solid #1f2937; background:#0c1428; color:#e5e7eb;" />
+                  </label>
+                </div>
+                <div id="modalError" style="color:#fecaca; min-height:1.2em;"></div>
+                <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
+                  <button id="modalCancel" class="btn-secondary">キャンセル</button>
+                  <button id="modalSave" class="btn-primary" style="padding:8px 14px;">保存</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div id="table-recent" class="tab-panel" style="display:none;">
           <table id="recentTable" class="display" style="width:100%"></table>

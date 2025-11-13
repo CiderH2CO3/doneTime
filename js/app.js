@@ -238,6 +238,67 @@ document.addEventListener('DOMContentLoaded', async () => {
   const filterDateToInput = document.getElementById('filterDateTo');
   const groupToggle = document.getElementById('groupToggle');
   const clearFilterBtn = document.getElementById('clearFilterBtn');
+  const manualAddBtn = document.getElementById('manualAddBtn');
+
+  // Modal elements
+  const modalEl = document.getElementById('activityModal');
+  const modalTitle = document.getElementById('activityModalTitle');
+  const modalTask = document.getElementById('modalTask');
+  const modalStart = document.getElementById('modalStart');
+  const modalEnd = document.getElementById('modalEnd');
+  const modalError = document.getElementById('modalError');
+  const modalCancel = document.getElementById('modalCancel');
+  const modalSave = document.getElementById('modalSave');
+
+  // datetime-local helpers
+  const toLocalInputValue = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${hh}:${mm}`;
+  };
+  const fromLocalInputValue = (v) => {
+    if (!v) return '';
+    const d = new Date(v);
+    return d.toISOString();
+  };
+
+  // Activities DB helpers
+  async function deleteActivityByEnd(db, endTime) {
+    if (!endTime) return false;
+    await withStore(db, STORES.activities, 'readwrite', (store) => store.delete(endTime));
+    return true;
+  }
+  async function getActivityByEnd(db, endTime) {
+    if (!endTime) return null;
+    return withStore(db, STORES.activities, 'readonly', (store) => store.get(endTime));
+  }
+
+  // Modal state
+  let editing = false;
+  let originalEndTime = null;
+  function openModal({ title, task = '', startTime = '', endTime = '' }, isEdit = false) {
+    editing = !!isEdit;
+    originalEndTime = isEdit ? endTime : null;
+    if (modalTitle) modalTitle.textContent = title || (isEdit ? 'アクティビティ編集' : 'アクティビティ追加');
+    if (modalTask) modalTask.value = task || '';
+    if (modalStart) modalStart.value = startTime ? toLocalInputValue(startTime) : '';
+    if (modalEnd) modalEnd.value = endTime ? toLocalInputValue(endTime) : '';
+    if (modalError) modalError.textContent = '';
+    if (modalEl) {
+      modalEl.style.display = 'flex';
+    }
+    setTimeout(() => modalTask && modalTask.focus(), 0);
+  }
+  function closeModal() {
+    if (modalEl) modalEl.style.display = 'none';
+    editing = false;
+    originalEndTime = null;
+  }
 
   // Helper: YYYY-MM-DD (local) from ISO string
   const toLocalYMD = (iso) => {
@@ -334,6 +395,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       { title: '開始時刻', data: 'startTime', render: (d) => fmtLocal(d) },
       { title: '完了時刻', data: 'endTime', render: (d) => fmtLocal(d) },
       { title: '作業時間', data: 'duration' },
+      {
+        title: '操作',
+        data: null,
+        orderable: false,
+        render: (row /*, type */) => {
+          const disabled = (groupToggle && groupToggle.checked);
+          const dis = disabled ? 'disabled' : '';
+          const hint = disabled ? '（作業別に集計中は編集できません）' : '';
+          return `
+            <div style="display:flex; gap:6px;">
+              <button class="btn-edit" ${dis} title="編集${hint}" style="padding:4px 8px; border:1px solid #1d4ed8; color:#dbeafe; background:#1e3a8a; border-radius:6px; cursor:pointer;">編集</button>
+              <button class="btn-delete" ${dis} title="削除${hint}" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">削除</button>
+            </div>`;
+        }
+      }
     ],
     order: [[2, 'desc']],
     pageLength: 10,
@@ -543,4 +619,107 @@ document.addEventListener('DOMContentLoaded', async () => {
       activitiesTable.button('.buttons-csv').trigger();
     });
   }
+
+  // Manual add button
+  if (manualAddBtn) {
+    manualAddBtn.addEventListener('click', async () => {
+      if (groupToggle && groupToggle.checked) {
+        alert('「作業別に集計」をオフにすると編集・追加できます。');
+        return;
+      }
+      const last = await getLastActivity(db);
+      const now = nowIso();
+      const start = last ? last.endTime : now;
+      openModal({ title: 'アクティビティ追加', task: '', startTime: start, endTime: now }, false);
+    });
+  }
+
+  // Modal buttons
+  if (modalCancel) modalCancel.addEventListener('click', closeModal);
+  if (modalEl) modalEl.addEventListener('click', (e) => {
+    if (e.target === modalEl) closeModal();
+  });
+  if (modalSave) {
+    modalSave.addEventListener('click', async () => {
+      const task = (modalTask && modalTask.value || '').trim();
+      const startIso = fromLocalInputValue(modalStart && modalStart.value);
+      const endIso = fromLocalInputValue(modalEnd && modalEnd.value);
+      if (!task) {
+        if (modalError) modalError.textContent = '作業内容を入力してください';
+        return;
+      }
+      if (!startIso || !endIso) {
+        if (modalError) modalError.textContent = '開始・完了時刻を入力してください';
+        return;
+      }
+      if (new Date(endIso) < new Date(startIso)) {
+        if (modalError) modalError.textContent = '開始時刻は完了時刻より前である必要があります';
+        return;
+      }
+
+      // Check endTime uniqueness (key)
+      const dup = activitiesMaster.find(a => a.endTime === endIso);
+      if (!editing) {
+        if (dup) {
+          if (modalError) modalError.textContent = '同じ完了時刻の行が既に存在します（完了時刻を変更してください）';
+          return;
+        }
+        const activity = { task, startTime: startIso, endTime: endIso };
+        await withStore(db, STORES.activities, 'readwrite', (store) => store.put(activity));
+        activitiesMaster.push(activity);
+        // recent 更新
+        await upsertRecent(db, task);
+        await trimRecentUnpinned(db, 30);
+        const updatedRecent = await getRecentAll(db);
+        recentTable.clear().rows.add(updatedRecent).draw(false);
+        buildOptionsFromRecent(updatedRecent);
+      } else {
+        // editing
+        const original = originalEndTime;
+        if (endIso !== original && dup) {
+          if (modalError) modalError.textContent = '同じ完了時刻の行が既に存在します（完了時刻を変更してください）';
+          return;
+        }
+        // Remove old if key changed
+        if (original && endIso !== original) {
+          await deleteActivityByEnd(db, original);
+          activitiesMaster = activitiesMaster.filter(a => a.endTime !== original);
+        }
+        const activity = { task, startTime: startIso, endTime: endIso };
+        await withStore(db, STORES.activities, 'readwrite', (store) => store.put(activity));
+        // Update master (replace or add)
+        const idx = activitiesMaster.findIndex(a => a.endTime === endIso);
+        if (idx >= 0) activitiesMaster[idx] = activity; else activitiesMaster.push(activity);
+      }
+
+      closeModal();
+      renderActivities();
+    });
+  }
+
+  // Edit/Delete handlers on activities table
+  document.querySelector('#activitiesTable').addEventListener('click', async (e) => {
+    const editBtn = e.target.closest('.btn-edit');
+    const delBtn = e.target.closest('.btn-delete');
+    if (!editBtn && !delBtn) return;
+    if (groupToggle && groupToggle.checked) {
+      alert('「作業別に集計」をオフにすると編集・削除できます。');
+      return;
+    }
+    const tr = (editBtn || delBtn).closest('tr');
+    const row = activitiesTable.row(tr);
+    const data = row.data();
+    if (!data) return;
+    if (editBtn) {
+      openModal({ title: 'アクティビティ編集', task: data.task, startTime: data.startTime, endTime: data.endTime }, true);
+      return;
+    }
+    if (delBtn) {
+      const ok = confirm('この行を削除しますか？');
+      if (!ok) return;
+      await deleteActivityByEnd(db, data.endTime);
+      activitiesMaster = activitiesMaster.filter(a => a.endTime !== data.endTime);
+      renderActivities();
+    }
+  });
 });
