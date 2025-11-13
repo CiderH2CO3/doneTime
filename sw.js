@@ -1,13 +1,12 @@
-const CACHE_NAME = 'done-time-cache-v1';
+const CACHE_NAME = 'done-time-cache-v2';
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/css/style.css',
-  '/js/app.js',
-  '/site.webmanifest',
-  '/icon.png',
-  '/icon.svg',
-  '/favicon.ico'
+  'index.html',
+  'css/style.css',
+  'js/app.js',
+  'site.webmanifest',
+  'icon.png',
+  'icon.svg',
+  'favicon.ico'
 ];
 
 self.addEventListener('install', (event) => {
@@ -31,7 +30,7 @@ self.addEventListener('fetch', (event) => {
   // Network-first for navigation; cache-first for others
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).catch(() => caches.match('/index.html'))
+      fetch(req).catch(() => caches.match('index.html'))
     );
     return;
   }
