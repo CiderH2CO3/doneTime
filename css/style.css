@@ -494,3 +494,33 @@ textarea {
   }
 }
 
+
+/* Controls layout grouping for activities panel */
+.panel-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.panel-controls .controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end; /* avoid buttons sticking out */
+  gap: 8px 12px;
+}
+.panel-controls .controls-row--primary {
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(0,0,0,0.15);
+}
+.panel-controls .controls-row--secondary {
+  padding-top: 6px;
+}
+
+/* Buttons baseline styling enhancements (lightweight) */
+button.btn-secondary, button.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Ensure DataTables own buttons toolbar is hidden (we trigger programmatically) */
+#activitiesTable_wrapper .dt-buttons { display: none; }

@@ -43,7 +43,7 @@ function linkifyTask(text, settings) {
   if (!tpl) return escapeHtml(t);
 
   // We will search both patterns; to avoid overlap, use a single regex with alternation
-  const rx = /(#[0-9]+)|([A-Z][A-Z0-9]+-[0-9]+)/g;
+  const rx = /(#[0-9]+)|([A-Z][A-Z0-9_]*-[0-9]+)/g;
   return escapeHtml(t).replace(rx, (m) => {
     let id = m;
     // If hash form, strip leading # for {id}
@@ -381,8 +381,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }));
     }
 
-    // Sort by endTime desc
-    rows.sort((a, b) => b.endTime.localeCompare(a.endTime));
+    // Sort by endTime asc (古い完了日が上になるように)
+    rows.sort((a, b) => a.endTime.localeCompare(b.endTime));
     activitiesTable.clear().rows.add(rows).draw(false);
   }
 
@@ -430,14 +430,16 @@ document.addEventListener('DOMContentLoaded', async () => {
           const hint = disabled ? '（作業別に集計中は編集できません）' : '';
           return `
             <div style="display:flex; gap:6px;">
-              <button class="btn-edit" ${dis} title="編集${hint}" style="padding:4px 8px; border:1px solid #1d4ed8; color:#dbeafe; background:#1e3a8a; border-radius:6px; cursor:pointer;">編集</button>
-              <button class="btn-delete" ${dis} title="削除${hint}" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">削除</button>
+              <button class="btn-edit" ${dis} title="編集${hint}" style="padding:4px 8px; border:1px solid #1d4ed8; color:#dbeafe; background:#1e3a8a; border-radius:6px; cursor:pointer;">✏️ 編集</button>
+              <button class="btn-delete" ${dis} title="削除${hint}" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">🗑️ 削除</button>
             </div>`;
         }
       }
     ],
-    order: [[2, 'desc']],
-    pageLength: 10,
+    // 初期並び替え: 完了時刻の古い順（asc）
+    order: [[2, 'asc']],
+    // 表示数を無制限にする（ページングを無効化）
+    paging: false,
     // DataTables v2 layout API: Buttons を有効化（ツールバーはCSSで非表示にする）
     layout: {
       topStart: {
@@ -483,11 +485,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       { title: 'ピン', data: 'pinned', render: (d) => `<input type="checkbox" ${d ? 'checked' : ''}>`, orderable: false },
       { title: '直近の作業入力内容', data: 'text' },
       { title: '操作', data: null, orderable: false, render: () => `
-          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">削除</button>
+          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">🗑️ 削除</button>
         ` },
     ],
     order: [[0, 'desc']],
-    pageLength: 10
+    // 入力候補もページング無しで全件表示
+    paging: false
   });
 
   // Populate initial data
@@ -603,12 +606,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     // UI feedback
     saveStatus.textContent = '保存しました';
     setTimeout(() => saveStatus.textContent = '', 1500);
-    taskInput.select();
+    // 入力欄をクリアして意図しない二重入力を防止
+    taskInput.value = '';
+    taskInput.focus();
   }
 
   saveBtn.addEventListener('click', saveTask);
+  // IME 変換確定 Enter と保存 Enter を分離するためのフラグ
+  let isComposing = false;
+  taskInput.addEventListener('compositionstart', () => { isComposing = true; });
+  taskInput.addEventListener('compositionend', () => { isComposing = false; });
   taskInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+      if (isComposing) {
+        // 変換中のEnterは保存しない
+        return;
+      }
       saveTask();
     }
   });
@@ -746,6 +759,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!ok) return;
       await deleteActivityByEnd(db, data.endTime);
       activitiesMaster = activitiesMaster.filter(a => a.endTime !== data.endTime);
+      // 削除した行の直後の作業の開始時刻を調整
+      try {
+        // prev: 削除行より前で最も遅い endTime の行
+        const prev = activitiesMaster
+          .filter(a => a.endTime < data.endTime)
+          .sort((a, b) => b.endTime.localeCompare(a.endTime))[0];
+        // next: startTime が削除行の endTime と一致する行（直後想定）
+        const next = activitiesMaster.find(a => a.startTime === data.endTime);
+        if (prev && next) {
+          const newStart = prev.endTime;
+          if (new Date(next.endTime) >= new Date(newStart) && next.startTime !== newStart) {
+            next.startTime = newStart;
+            await withStore(db, STORES.activities, 'readwrite', (store) => store.put({ task: next.task, startTime: next.startTime, endTime: next.endTime }));
+          }
+        }
+      } catch (err) {
+        console.warn('startTime 調整中にエラー:', err);
+      }
       renderActivities();
     }
   });

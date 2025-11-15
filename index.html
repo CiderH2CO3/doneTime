@@ -38,7 +38,7 @@
     <label for="taskInput" style="font-weight:600;">作業内容</label>
     <input id="taskInput" list="taskOptions" type="text" placeholder="作業内容を入力" style="flex: 1 1 280px; max-width: 520px; padding:8px;" />
     <datalist id="taskOptions"></datalist>
-    <button id="saveBtn" style="padding:8px 14px;">保存</button>
+    <button id="saveBtn" style="padding:8px 14px;">💾 保存</button>
     <span id="saveStatus" style="margin-left:8px; color:#2f7; font-size:0.9em;"></span>
   </header>
 
@@ -52,22 +52,25 @@
       <div class="tab-panels">
         <div id="table-activities" class="tab-panel active">
           <div class="panel-controls">
-            <div class="control-group">
-              <label for="filterDateFrom" title="完了時刻の日付で絞り込み">完了日</label>
-              <div style="display:flex; gap:6px; align-items:center;">
-                <input id="filterDateFrom" type="date" title="開始日" />
-                <span>〜</span>
-                <input id="filterDateTo" type="date" title="終了日" />
+            <div class="controls-row controls-row--primary" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
+              <div class="control-group">
+                <label for="filterDateFrom" title="完了時刻の日付で絞り込み">📅 完了日</label>
+                <div style="display:flex; gap:6px; align-items:center;">
+                  <input id="filterDateFrom" type="date" title="開始日" />
+                  <span>〜</span>
+                  <input id="filterDateTo" type="date" title="終了日" />
+                </div>
               </div>
+              <div class="control-group" style="display:flex; gap:8px; align-items:center;">
+                <label for="groupToggle" title="同じ作業内容を一つにまとめる" style="margin:0;">📊 作業別に集計</label>
+                <input id="groupToggle" type="checkbox" />
+              </div>
+              <button id="clearFilterBtn" class="btn-secondary" title="フィルタ解除">♻️ 解除</button>
             </div>
-            <div class="control-group">
-              <label for="groupToggle" title="同じ作業内容を一つにまとめる">作業別に集計</label>
-              <input id="groupToggle" type="checkbox" />
+            <div class="controls-row controls-row--secondary" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding-top:8px;">
+              <button id="manualAddBtn" class="btn-secondary" title="行を手動追加">➕ 手動追加</button>
+              <button id="downloadCsvBtn" class="btn-secondary" title="表示中の一覧をCSVでダウンロード">⬇️ CSVダウンロード</button>
             </div>
-            <div class="spacer"></div>
-            <button id="manualAddBtn" class="btn-secondary" title="行を手動追加" style="margin-right:8px;">手動追加</button>
-            <button id="downloadCsvBtn" class="btn-secondary" title="表示中の一覧をCSVでダウンロード" style="margin-right:8px;">CSVダウンロード</button>
-            <button id="clearFilterBtn" class="btn-secondary" title="フィルタ解除">解除</button>
           </div>
           <table id="activitiesTable" class="display" style="width:100%"></table>
           <!-- 編集/追加モーダル -->
@@ -91,8 +94,8 @@
                 </div>
                 <div id="modalError" style="color:#fecaca; min-height:1.2em;"></div>
                 <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
-                  <button id="modalCancel" class="btn-secondary">キャンセル</button>
-                  <button id="modalSave" class="btn-primary" style="padding:8px 14px;">保存</button>
+                  <button id="modalCancel" class="btn-secondary">✖️ キャンセル</button>
+                  <button id="modalSave" class="btn-primary" style="padding:8px 14px;">💾 保存</button>
                 </div>
               </div>
             </div>
@@ -110,7 +113,7 @@
               テンプレート内の {id} は検出したIDに置き換えられます（#で始まる場合は # を除いた数字部分を使用）。
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
-              <button id="settingsSaveBtn" class="btn-secondary" style="padding:8px 14px;">設定を保存</button>
+              <button id="settingsSaveBtn" class="btn-secondary" style="padding:8px 14px;">⚙️ 設定を保存</button>
               <span id="settingsSaveStatus" style="color:#2f7; font-size:0.9em;"></span>
             </div>
           </div>
