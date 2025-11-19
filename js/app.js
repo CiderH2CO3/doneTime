@@ -430,8 +430,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           const hint = disabled ? '（作業別に集計中は編集できません）' : '';
           return `
             <div style="display:flex; gap:6px;">
-              <button class="btn-edit" ${dis} title="編集${hint}" style="padding:4px 8px; border:1px solid #1d4ed8; color:#dbeafe; background:#1e3a8a; border-radius:6px; cursor:pointer;">✏️ 編集</button>
-              <button class="btn-delete" ${dis} title="削除${hint}" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">🗑️ 削除</button>
+              <button class="btn-edit" ${dis} title="編集${hint}" style="padding:4px 8px; border:1px solid #1d4ed8; color:#dbeafe; background:#1e3a8a; border-radius:6px; cursor:pointer;">
+                <i class="bi bi-pencil"></i> 編集
+              </button>
+              <button class="btn-delete" ${dis} title="削除${hint}" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">
+                <i class="bi bi-trash"></i> 削除
+              </button>
             </div>`;
         }
       }
@@ -482,11 +486,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   const recentTable = new DataTable('#recentTable', {
     data: [],
     columns: [
-      { title: 'ピン', data: 'pinned', render: (d) => `<input type="checkbox" ${d ? 'checked' : ''}>`, orderable: false },
+      {
+        title: 'ピン',
+        data: 'pinned',
+        orderable: false,
+        render: (d) => `
+          <i class="bi ${d ? 'bi-pin-fill' : 'bi-pin'} pin-icon" style="cursor: pointer; font-size: 1.2em;"></i>
+        `
+      },
       { title: '直近の作業入力内容', data: 'text' },
-      { title: '操作', data: null, orderable: false, render: () => `
-          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">🗑️ 削除</button>
-        ` },
+      {
+        title: '操作',
+        data: null,
+        orderable: false,
+        render: () => `
+          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">
+            <i class="bi bi-trash"></i> 削除
+          </button>
+        `
+      },
     ],
     order: [[0, 'desc']],
     // 入力候補もページング無しで全件表示
@@ -528,39 +546,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Handle pin toggle in recentTable
-  document.querySelector('#recentTable').addEventListener('change', async (e) => {
-    const target = e.target;
-    if (target && target.type === 'checkbox') {
-      // Find row data
-      const tr = target.closest('tr');
+  document.querySelector('#recentTable').addEventListener('click', async (e) => {
+    const pinIcon = e.target.closest('.pin-icon');
+    if (pinIcon) {
+      const tr = pinIcon.closest('tr');
       const row = recentTable.row(tr);
       const data = row.data();
-      await setPinned(db, data.text, target.checked);
-      // If unpinned, enforce trimming
-      if (!target.checked) {
-        await trimRecentUnpinned(db, 30);
-      }
+      const newPinnedState = !data.pinned;
+      await setPinned(db, data.text, newPinnedState);
+      const updated = await getRecentAll(db);
+      recentTable.clear().rows.add(updated).draw(false);
+      buildOptionsFromRecent(updated);
+      return;
+    }
+
+    const btn = e.target.closest('.btn-delete');
+    if (btn) {
+      const tr = btn.closest('tr');
+      const row = recentTable.row(tr);
+      const data = row.data();
+      const text = data && data.text;
+      if (!text) return;
+      const ok = confirm(`「${text}」を入力候補から削除しますか？`);
+      if (!ok) return;
+      await deleteRecent(db, text);
       const updated = await getRecentAll(db);
       recentTable.clear().rows.add(updated).draw(false);
       buildOptionsFromRecent(updated);
     }
-  });
-
-  // Handle delete button in recentTable
-  document.querySelector('#recentTable').addEventListener('click', async (e) => {
-    const btn = e.target.closest('.btn-delete');
-    if (!btn) return;
-    const tr = btn.closest('tr');
-    const row = recentTable.row(tr);
-    const data = row.data();
-    const text = data && data.text;
-    if (!text) return;
-    const ok = confirm(`「${text}」を入力候補から削除しますか？`);
-    if (!ok) return;
-    await deleteRecent(db, text);
-    const updated = await getRecentAll(db);
-    recentTable.clear().rows.add(updated).draw(false);
-    buildOptionsFromRecent(updated);
   });
 
   // Save button logic
@@ -680,6 +693,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target === modalEl) closeModal();
   });
   if (modalSave) {
+    modalSave.innerHTML = '<i class="bi bi-save"></i> 保存';
     modalSave.addEventListener('click', async () => {
       const task = (modalTask && modalTask.value || '').trim();
       const startIso = fromLocalInputValue(modalStart && modalStart.value);

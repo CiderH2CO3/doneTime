@@ -522,5 +522,11 @@ button.btn-secondary, button.btn-primary {
   gap: 6px;
 }
 
+button i {
+  margin-right: 6px;
+  font-size: 1.2em;
+  vertical-align: middle;
+}
+
 /* Ensure DataTables own buttons toolbar is hidden (we trigger programmatically) */
 #activitiesTable_wrapper .dt-buttons { display: none; }
