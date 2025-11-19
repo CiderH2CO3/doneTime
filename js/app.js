@@ -226,13 +226,13 @@ async function seedPinnedDefaults(db) {
   }
 }
 
+// Update buildOptionsFromRecent to respect the order property
 function buildOptionsFromRecent(recent) {
-  const pinned = recent.filter(r => r.pinned).sort((a, b) => a.text.localeCompare(b.text));
-  const unpinned = recent.filter(r => !r.pinned).sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0));
-  const list = [...pinned, ...unpinned];
+  const sortedRecent = [...recent]
+    .sort((a, b) => a.order - b.order || b.pinned - a.pinned); // Sort by order, then by pinned
   const frag = document.createDocumentFragment();
   const seen = new Set();
-  list.forEach(r => {
+  sortedRecent.forEach(r => {
     if (seen.has(r.text)) return;
     seen.add(r.text);
     const opt = document.createElement('option');
@@ -494,7 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <i class="bi ${d ? 'bi-pin-fill' : 'bi-pin'} pin-icon" style="cursor: pointer; font-size: 1.2em;"></i>
         `
       },
-      { title: '直近の作業入力内容', data: 'text' },
+      { title: '直近の作業入力内容', data: 'text', orderable: false },
       {
         title: '操作',
         data: null,
@@ -506,21 +506,77 @@ document.addEventListener('DOMContentLoaded', async () => {
         `
       },
     ],
-    order: [[0, 'desc']],
-    // 入力候補もページング無しで全件表示
     paging: false
   });
 
-  // Populate initial data
-  const acts = await getAllActivities(db);
-  activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
-  renderActivities();
+  // Initialize drag-and-drop sorting for recentTable
+  function enableDragAndDropSorting(table, db) {
+    const tbody = table.table().body();
 
-  // Ensure default pinned suggestions exist (one-time)
-  await seedPinnedDefaults(db);
+    tbody.addEventListener('dragstart', (e) => {
+      const row = e.target.closest('tr');
+      if (row) {
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.rowIndex);
+      }
+    });
+
+    tbody.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const draggingRow = tbody.querySelector('.dragging');
+      const targetRow = e.target.closest('tr');
+      if (draggingRow && targetRow && draggingRow !== targetRow) {
+        const draggingIndex = draggingRow.rowIndex;
+        const targetIndex = targetRow.rowIndex;
+        if (draggingIndex < targetIndex) {
+          tbody.insertBefore(draggingRow, targetRow.nextSibling);
+        } else {
+          tbody.insertBefore(draggingRow, targetRow);
+        }
+      }
+    });
+
+    tbody.addEventListener('dragend', async () => {
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const updatedOrder = rows.map((row) => table.row(row).data());
+      updatedOrder.forEach((item, index) => {
+        item.order = index; // Update order property
+      });
+
+      // Save the updated order to the database
+      await withStore(db, STORES.recent, 'readwrite', (store) => {
+        updatedOrder.forEach((item) => store.put(item));
+      });
+
+      // Update the datalist options
+      buildOptionsFromRecent(updatedOrder);
+
+      // Remove dragging class
+      rows.forEach((row) => row.classList.remove('dragging'));
+    });
+
+    // Add draggable attribute to rows
+    table.on('draw', () => {
+      Array.from(tbody.querySelectorAll('tr')).forEach((row) => {
+        row.setAttribute('draggable', true);
+      });
+    });
+  }
+
+  // Enable drag-and-drop sorting
+  enableDragAndDropSorting(recentTable, db);
+
+  // Populate initial data
   const recent = await getRecentAll(db);
   recentTable.clear().rows.add(recent).draw();
   buildOptionsFromRecent(recent);
+
+  // Ensure default pinned suggestions exist (one-time)
+  await seedPinnedDefaults(db);
+  const acts = await getAllActivities(db);
+  activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
+  renderActivities();
 
   // Settings UI wiring
   const ticketUrlTemplateInput = document.getElementById('ticketUrlTemplate');

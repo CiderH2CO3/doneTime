@@ -530,3 +530,17 @@ button i {
 
 /* Ensure DataTables own buttons toolbar is hidden (we trigger programmatically) */
 #activitiesTable_wrapper .dt-buttons { display: none; }
+
+/* recentTable: ドラッグ可能な行のカーソル表示 */
+#recentTable tbody tr {
+  cursor: grab;
+  transition: background 0.15s;
+}
+#recentTable tbody tr:active,
+#recentTable tbody tr.dragging {
+  cursor: grabbing;
+  background: rgba(34,197,94,0.08); /* 軽いグリーンでドラッグ中を強調 */
+}
+#recentTable tbody tr:hover {
+  background: rgba(96,165,250,0.08); /* ホバー時は青系で強調 */
+}
