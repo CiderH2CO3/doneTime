@@ -544,3 +544,16 @@ button i {
 #recentTable tbody tr:hover {
   background: rgba(96,165,250,0.08); /* ホバー時は青系で強調 */
 }
+
+/* recentTable/activitiesTable: タグ表示用 */
+#recentTable .tag, #activitiesTable .tag {
+  display: inline-block;
+  background: #334155;
+  color: #a7f3d0;
+  font-size: 0.85em;
+  border-radius: 6px;
+  padding: 2px 8px;
+  margin-right: 4px;
+  margin-bottom: 2px;
+  vertical-align: middle;
+}

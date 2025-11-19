@@ -63,7 +63,7 @@ const DB_NAME = 'doneTimeDB';
 const DB_VERSION = 1;
 const STORES = {
   activities: 'activities', // keyPath: endTime
-  recent: 'recentInputs'    // keyPath: text
+  recent: 'recentInputs'    // keyPath: 'text'
 };
 
 function openDB() {
@@ -201,27 +201,34 @@ async function deleteRecent(db, text) {
   return true;
 }
 
+// グローバル宣言
+let recentTable;
+let recentTagsMap = new Map();
+let activitiesMaster = [];
+
 // Seed default pinned suggestions (one-time)
-const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v1';
+const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v4'; // バージョンを更新
 async function seedPinnedDefaults(db) {
   try {
     if (localStorage.getItem(SEEDED_FLAG)) return;
-    const defaults = ['開始', '休憩'];
+    const defaults = [
+      { text: '開始', pinned: true, lastUsed: Date.now(), tags: ['集計対象外'] },
+      { text: '休憩', pinned: true, lastUsed: Date.now(), tags: ['集計対象外'] }
+    ];
     await withStore(db, STORES.recent, 'readwrite', (store) => {
-      defaults.forEach((text) => {
-        const getReq = store.get(text);
+      defaults.forEach((item) => {
+        const getReq = store.get(item.text);
         getReq.onsuccess = () => {
           const exists = getReq.result;
-          if (!exists) {
-            store.put({ text, pinned: true, lastUsed: Date.now() });
+          // 「集計対象外」タグがなければ必ず付与
+          if (!exists || !Array.isArray(exists.tags) || !exists.tags.includes('集計対象外')) {
+            store.put({ ...exists, ...item, tags: ['集計対象外'] });
           }
         };
-        // onerror: ignore, transaction will handle
       });
     });
     localStorage.setItem(SEEDED_FLAG, '1');
   } catch (e) {
-    // fail silently; feature is non-critical
     console.warn('Failed to seed default pinned suggestions', e);
   }
 }
@@ -249,16 +256,91 @@ function buildDuration(startIso, endIso) {
   return msToHMS(ms);
 }
 
+// タグ表示用HTML（タグクリックで検索）
+function renderTags(tags) {
+  if (!tags || !tags.length) return '';
+  return tags.map(t => `<span class="tag tag-searchable" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join(' ');
+}
+
+// recentのタグMap
+function getRecentTagsMap(recent) {
+  const map = new Map();
+  for (const r of recent) {
+    if (r.text && Array.isArray(r.tags)) {
+      map.set(r.text, r.tags);
+    }
+  }
+  return map;
+}
+
+// 直近履歴からユニークなタグ一覧を取得
+function getAllTagCandidates(recent) {
+  const tagSet = new Set();
+  for (const r of recent) {
+    if (Array.isArray(r.tags)) {
+      r.tags.forEach(t => tagSet.add(t));
+    }
+  }
+  return Array.from(tagSet).filter(Boolean);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const db = await openDB();
 
+  // 1. デフォルト候補を必ず先に投入
+  await seedPinnedDefaults(db);
+
+  // 2. recentTable の初期化
+  recentTable = new DataTable('#recentTable', {
+    data: [],
+    columns: [
+      {
+        title: 'ピン',
+        data: 'pinned',
+        orderable: false,
+        render: (d) => `
+          <i class="bi ${d ? 'bi-pin-fill' : 'bi-pin'} pin-icon" style="cursor: pointer; font-size: 1.2em;"></i>
+        `
+      },
+      { title: '直近の作業入力内容', data: 'text', orderable: false },
+      {
+        title: 'タグ',
+        data: 'tags',
+        orderable: false,
+        render: renderTags
+      },
+      {
+        title: '操作',
+        data: null,
+        orderable: false,
+        render: () => `
+          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">
+            <i class="bi bi-trash"></i> 削除
+          </button>
+        `
+      },
+    ],
+    paging: false
+  });
+
+  // 3. 入力候補データ取得・描画
+  const recent = await getRecentAll(db);
+  recentTagsMap = getRecentTagsMap(recent);
+  recentTable.clear().rows.add(recent).draw();
+  buildOptionsFromRecent(recent);
+
+  // 4. activitiesMaster の初期化
+  const acts = await getAllActivities(db);
+  activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
+
   // State for activities master list (for filtering / grouping)
-  let activitiesMaster = [];
+  // let activitiesMaster = []; ← この行を削除
+
   // Settings state
   let settings = loadSettings();
   // CSVエクスポートは DataTables Buttons を使用するため、個別保持は不要
 
-  // UI elements for filter/group
+  // UI要素取得
   const filterDateFromInput = document.getElementById('filterDateFrom');
   const filterDateToInput = document.getElementById('filterDateTo');
   const groupToggle = document.getElementById('groupToggle');
@@ -342,7 +424,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const doGroup = !!(groupToggle && groupToggle.checked);
     let rows = [];
 
-    // Apply date filter (by endTime local date) - supports range
     const filtered = (fromYMD || toYMD)
       ? activitiesMaster.filter(a => {
           const d = toLocalYMD(a.endTime);
@@ -352,9 +433,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         })
       : activitiesMaster.slice();
 
+    // 「集計対象外」タグ付きの作業内容を「作業別に集計」の時は除外
+    const filtered2 = doGroup
+      ? filtered.filter(a => {
+          const tags = recentTagsMap.get(a.task) || [];
+          return !tags.includes('集計対象外');
+        })
+      : filtered;
+
     if (doGroup) {
       const map = new Map();
-      for (const a of filtered) {
+      for (const a of filtered2) {
         const key = a.task || '';
         const cur = map.get(key) || {
           task: key,
@@ -375,7 +464,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         duration: msToHMS(r._durationMs)
       }));
     } else {
-      rows = filtered.map(a => ({
+      rows = filtered2.map(a => ({
         ...a,
         duration: buildDuration(a.startTime, a.endTime)
       }));
@@ -413,7 +502,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         data: 'task',
         render: (d, type) => {
           if (type === 'display') return linkifyTask(d, settings);
-          // for sort/search use raw text
           return d == null ? '' : String(d);
         }
       },
@@ -421,10 +509,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       { title: '完了時刻', data: 'endTime', render: (d) => fmtLocal(d) },
       { title: '作業時間', data: 'duration' },
       {
+        title: 'タグ',
+        data: 'task',
+        orderable: false,
+        render: (task) => {
+          const tags = recentTagsMap.get(task) || [];
+          return renderTags(tags);
+        }
+      },
+      {
         title: '操作',
         data: null,
         orderable: false,
-        render: (row /*, type */) => {
+        render: (row) => {
           const disabled = (groupToggle && groupToggle.checked);
           const dis = disabled ? 'disabled' : '';
           const hint = disabled ? '（作業別に集計中は編集できません）' : '';
@@ -454,10 +551,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             bom: true,
             exportOptions: {
               // 表示されている列を出力
-              columns: [0, 1, 2, 3],
+              columns: [0, 1, 2, 3, 4],
               // HTML（リンク）をプレーンテキスト化
               format: {
-                body: function (data/*, row, column, node */) {
+                body: function (data) {
                   if (data == null) return '';
                   const s = String(data);
                   // タグ除去してテキスト化
@@ -481,32 +578,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         ]
       }
     }
-  });
-
-  const recentTable = new DataTable('#recentTable', {
-    data: [],
-    columns: [
-      {
-        title: 'ピン',
-        data: 'pinned',
-        orderable: false,
-        render: (d) => `
-          <i class="bi ${d ? 'bi-pin-fill' : 'bi-pin'} pin-icon" style="cursor: pointer; font-size: 1.2em;"></i>
-        `
-      },
-      { title: '直近の作業入力内容', data: 'text', orderable: false },
-      {
-        title: '操作',
-        data: null,
-        orderable: false,
-        render: () => `
-          <button class="btn-delete" title="この入力候補を削除" style="padding:4px 8px; border:1px solid #b91c1c; color:#fecaca; background:#7f1d1d; border-radius:6px; cursor:pointer;">
-            <i class="bi bi-trash"></i> 削除
-          </button>
-        `
-      },
-    ],
-    paging: false
   });
 
   // Initialize drag-and-drop sorting for recentTable
@@ -566,17 +637,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Enable drag-and-drop sorting
   enableDragAndDropSorting(recentTable, db);
-
-  // Populate initial data
-  const recent = await getRecentAll(db);
-  recentTable.clear().rows.add(recent).draw();
-  buildOptionsFromRecent(recent);
-
-  // Ensure default pinned suggestions exist (one-time)
-  await seedPinnedDefaults(db);
-  const acts = await getAllActivities(db);
-  activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
-  renderActivities();
 
   // Settings UI wiring
   const ticketUrlTemplateInput = document.getElementById('ticketUrlTemplate');
@@ -665,10 +725,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     activitiesMaster.push(activity);
     renderActivities();
 
-    // Update recent inputs
-    await upsertRecent(db, task);
+    // 既存のタグを維持して recent を更新
+    const existing = recentTagsMap.get(task);
+    await upsertRecent(db, task, existing ? { tags: existing } : {});
     await trimRecentUnpinned(db, 30);
     const updatedRecent = await getRecentAll(db);
+    recentTagsMap = getRecentTagsMap(updatedRecent);
     recentTable.clear().rows.add(updatedRecent).draw(false);
     buildOptionsFromRecent(updatedRecent);
 
@@ -777,10 +839,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const activity = { task, startTime: startIso, endTime: endIso };
         await withStore(db, STORES.activities, 'readwrite', (store) => store.put(activity));
         activitiesMaster.push(activity);
-        // recent 更新
-        await upsertRecent(db, task);
+        // 既存のタグを維持して recent を更新
+        const existing = recentTagsMap.get(task);
+        await upsertRecent(db, task, existing ? { tags: existing } : {});
         await trimRecentUnpinned(db, 30);
         const updatedRecent = await getRecentAll(db);
+        recentTagsMap = getRecentTagsMap(updatedRecent);
         recentTable.clear().rows.add(updatedRecent).draw(false);
         buildOptionsFromRecent(updatedRecent);
       } else {
@@ -800,6 +864,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Update master (replace or add)
         const idx = activitiesMaster.findIndex(a => a.endTime === endIso);
         if (idx >= 0) activitiesMaster[idx] = activity; else activitiesMaster.push(activity);
+        // 既存のタグを維持して recent を更新
+        const existing = recentTagsMap.get(task);
+        await upsertRecent(db, task, existing ? { tags: existing } : {});
+        await trimRecentUnpinned(db, 30);
+        const updatedRecent = await getRecentAll(db);
+        recentTagsMap = getRecentTagsMap(updatedRecent);
+        recentTable.clear().rows.add(updatedRecent).draw(false);
+        buildOptionsFromRecent(updatedRecent);
       }
 
       closeModal();
@@ -850,4 +922,140 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderActivities();
     }
   });
+
+  // タグ編集UI（タグ列ダブルクリックで編集、候補も選択可）
+  document.querySelector('#recentTable').addEventListener('dblclick', async (e) => {
+    const td = e.target.closest('td');
+    if (!td) return;
+    const colIdx = td.cellIndex;
+    if (colIdx !== 2) return;
+    const tr = td.closest('tr');
+    if (!tr) return;
+    const row = recentTable.row(tr);
+    const data = row.data();
+    if (!data) return;
+
+    // 直近履歴からタグ候補を取得
+    const allRecent = await getRecentAll(await openDB());
+    const tagCandidates = getAllTagCandidates(allRecent);
+
+    // 編集用ダイアログ生成
+    const currentTags = Array.isArray(data.tags) ? data.tags : [];
+    const modal = document.createElement('div');
+    modal.style = `
+      position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.25); display:flex; align-items:center; justify-content:center;
+    `;
+    modal.innerHTML = `
+      <div style="background:#1e293b; color:#e5e7eb; border-radius:10px; padding:18px 18px 12px 18px; min-width:320px; box-shadow:0 8px 32px #0008;">
+        <div style="font-weight:600; margin-bottom:8px;">タグ編集</div>
+        <input id="tagEditInput" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0c1428;color:#e5e7eb;" placeholder="カンマ区切りで入力" value="${currentTags.join(',')}" />
+        <div style="margin:10px 0 4px 0; font-size:0.95em;">タグ候補:</div>
+        <div id="tagCandidateList" style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-bottom:10px;">
+          ${tagCandidates.map(t => `<span class="tag tag-candidate" style="cursor:pointer;user-select:none;background:#334155;color:#a7f3d0;padding:2px 8px;border-radius:6px;">${escapeHtml(t)}</span>`).join('')}
+        </div>
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+          <button id="tagEditCancel" style="padding:6px 14px;border-radius:6px;border:1px solid #334155;background:#0c1428;color:#e5e7eb;">キャンセル</button>
+          <button id="tagEditOk" style="padding:6px 14px;border-radius:6px;border:1px solid #22c55e;background:#22c55e;color:#062813;font-weight:700;">保存</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = modal.querySelector('#tagEditInput');
+    let isComposing = false;
+
+    // 候補クリックで追加
+    modal.querySelectorAll('.tag-candidate').forEach(el => {
+      el.addEventListener('click', () => {
+        const val = input.value.trim();
+        const tags = val ? val.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const tag = el.textContent;
+        if (!tags.includes(tag)) tags.push(tag);
+        input.value = tags.join(',');
+      });
+    });
+
+    // 保存処理
+    const saveTags = async () => {
+      const tags = input.value.split(',').map(s => s.trim()).filter(Boolean);
+      data.tags = tags;
+      await withStore(await openDB(), STORES.recent, 'readwrite', (store) => store.put(data));
+      // テーブル・入力候補・タグMap・アクティビティテーブルを更新
+      const updated = await getRecentAll(await openDB());
+      recentTagsMap = getRecentTagsMap(updated);
+      recentTable.clear().rows.add(updated).draw(false);
+      buildOptionsFromRecent(updated);
+      renderActivities();
+      document.body.removeChild(modal);
+    };
+
+    // 保存ボタン
+    modal.querySelector('#tagEditOk').addEventListener('click', saveTags);
+
+    // キャンセルボタン
+    modal.querySelector('#tagEditCancel').addEventListener('click', () => {
+      document.body.removeChild(modal);
+    });
+
+    // ESCキーで閉じる
+    modal.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        document.body.removeChild(modal);
+      }
+    });
+
+    // IME変換確定後のEnterキーで保存
+    input.addEventListener('compositionstart', () => { isComposing = true; });
+    input.addEventListener('compositionend', () => { isComposing = false; });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !isComposing) {
+        saveTags();
+      }
+    });
+
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+  });
+
+  // テーブルのタグ列に対するカスタムレンダラー
+  function tagCellRenderer(task) {
+    const tags = recentTagsMap.get(task) || [];
+    return renderTags(tags);
+  }
+  // activitiesTable のタグ列にカスタムレンダラーを適用
+  activitiesTable.on('init', () => {
+    const taskCol = activitiesTable.column('task:name');
+    if (taskCol) {
+      taskCol.dataSrc = (row) => {
+        return tagCellRenderer(row.task);
+      };
+      // 列の再描画
+      activitiesTable.columns.adjust().draw();
+    }
+  });
+
+  // タグクリックで「Search」に自動入力＆検索
+  document.addEventListener('click', (e) => {
+    const tagEl = e.target.closest('.tag-searchable');
+    if (tagEl && tagEl.dataset && tagEl.dataset.tag) {
+      // DataTables v2 APIで検索
+      if (activitiesTable && typeof activitiesTable.search === 'function') {
+        activitiesTable.search(tagEl.dataset.tag).draw();
+      }
+    }
+  });
+
+  // DataTablesのdraw時に検索欄へ値を反映（同期用）
+  activitiesTable.on('draw', function() {
+    const searchVal = activitiesTable.search();
+    const dtSearchInput = document.querySelector('#activitiesTable_filter input[type="search"], #activitiesTable_filter input[type="text"]');
+    if (dtSearchInput && searchVal !== undefined) {
+      dtSearchInput.value = searchVal;
+    }
+  });
+
+  // 最後に初回描画
+  renderActivities();
 });
