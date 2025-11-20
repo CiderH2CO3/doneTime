@@ -1150,8 +1150,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // テーブル・入力候補・タグMap・アクティビティテーブルを更新
       const updated = await getRecentAll(await openDB());
       recentTagsMap = getRecentTagsMap(updated);
-      recentTable.clear().rows.add(updated).draw(false);
-      buildOptionsFromRecent(updated);
+      const sorted = sortRecentItems(updated); // ピン留め順を維持するためにソート
+      recentTable.clear().rows.add(sorted).draw(false);
+      buildOptionsFromRecent(sorted);
       renderActivities();
       document.body.removeChild(modal);
     };
