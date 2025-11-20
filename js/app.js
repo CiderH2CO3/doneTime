@@ -201,29 +201,109 @@ async function deleteRecent(db, text) {
   return true;
 }
 
+// On new task, update order: unpinned go to top of unpinned list.
+async function updateRecentOrderForNewTask(db, task) {
+  const allRecent = await getRecentAll(db);
+  const existing = allRecent.find(r => r.text === task);
+
+  // If the item is already pinned, just update its lastUsed time and don't change order.
+  if (existing && existing.pinned) {
+    existing.lastUsed = Date.now();
+    await withStore(db, STORES.recent, 'readwrite', store => store.put(existing));
+    return allRecent;
+  }
+
+  // Handle unpinned items: move or add to the top of the unpinned list.
+  const pinnedItems = allRecent.filter(r => r.pinned);
+  pinnedItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const unpinnedItems = allRecent.filter(r => !r.pinned && r.text !== task);
+  unpinnedItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const newItem = {
+    text: task,
+    pinned: false,
+    lastUsed: Date.now(),
+    tags: existing ? existing.tags : (recentTagsMap.get(task) || []),
+  };
+  unpinnedItems.unshift(newItem);
+
+  const reorderedRecent = [...pinnedItems, ...unpinnedItems];
+  reorderedRecent.forEach((item, index) => {
+    item.order = index;
+  });
+
+  await withStore(db, STORES.recent, 'readwrite', store => {
+    reorderedRecent.forEach(item => store.put(item));
+  });
+
+  return reorderedRecent;
+}
+
+// On pin toggle, update order.
+async function updateRecentOrderForPinToggle(db, task, newPinnedState) {
+  const allRecent = await getRecentAll(db);
+  const itemToUpdate = allRecent.find(r => r.text === task);
+
+  // This should not happen if called from UI, but as a fallback...
+  if (!itemToUpdate) {
+    await upsertRecent(db, task, { pinned: newPinnedState });
+    // Re-fetch and re-sort everything from scratch as a safe but slow fallback
+    const items = await getRecentAll(db);
+    return sortRecentItems(items);
+  }
+
+  // Set the new state
+  itemToUpdate.pinned = newPinnedState;
+
+  // Separate lists, EXCLUDING the item being moved
+  const pinnedItems = allRecent.filter(r => r.pinned && r.text !== task);
+  pinnedItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const unpinnedItems = allRecent.filter(r => !r.pinned && r.text !== task);
+  unpinnedItems.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  if (newPinnedState) {
+    // Pinning: add to the end of pinned list
+    pinnedItems.push(itemToUpdate);
+  } else {
+    // Unpinning: add to the start of unpinned list
+    unpinnedItems.unshift(itemToUpdate);
+  }
+
+  const reorderedRecent = [...pinnedItems, ...unpinnedItems];
+  reorderedRecent.forEach((item, index) => {
+    item.order = index;
+  });
+
+  await withStore(db, STORES.recent, 'readwrite', store => {
+    reorderedRecent.forEach(item => store.put(item));
+  });
+
+  return reorderedRecent;
+}
+
 // グローバル宣言
 let recentTable;
 let recentTagsMap = new Map();
 let activitiesMaster = [];
 
 // Seed default pinned suggestions (one-time)
-const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v4'; // バージョンを更新
+const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v5'; // バージョンを更新
 async function seedPinnedDefaults(db) {
   try {
     if (localStorage.getItem(SEEDED_FLAG)) return;
     const defaults = [
-      { text: '開始', pinned: true, lastUsed: Date.now(), tags: ['集計対象外'] },
-      { text: '休憩', pinned: true, lastUsed: Date.now(), tags: ['集計対象外'] }
+      { text: '開始', pinned: true, lastUsed: Date.now(), tags: ['集計対象外'], order: 0 },
+      { text: '休憩', pinned: true, lastUsed: Date.now(), tags: ['集計対象外'], order: 1 }
     ];
     await withStore(db, STORES.recent, 'readwrite', (store) => {
       defaults.forEach((item) => {
         const getReq = store.get(item.text);
         getReq.onsuccess = () => {
           const exists = getReq.result;
-          // 「集計対象外」タグがなければ必ず付与
-          if (!exists || !Array.isArray(exists.tags) || !exists.tags.includes('集計対象外')) {
-            store.put({ ...exists, ...item, tags: ['集計対象外'] });
-          }
+          // 常に order を含むように上書き
+          store.put({ ...exists, ...item });
         };
       });
     });
@@ -233,10 +313,24 @@ async function seedPinnedDefaults(db) {
   }
 }
 
+// Sorts recent items: pinned first, then unpinned.
+// Within each group, sorting is based on the 'order' property.
+function sortRecentItems(items) {
+  if (!Array.isArray(items)) return [];
+  const pinned = items.filter(it => it.pinned);
+  const unpinned = items.filter(it => !it.pinned);
+
+  // sort by order, then by lastUsed desc as a fallback
+  const sortByOrder = (a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (b.lastUsed || 0) - (a.lastUsed || 0);
+  pinned.sort(sortByOrder);
+  unpinned.sort(sortByOrder);
+
+  return [...pinned, ...unpinned];
+}
+
 // Update buildOptionsFromRecent to respect the order property
 function buildOptionsFromRecent(recent) {
-  const sortedRecent = [...recent]
-    .sort((a, b) => a.order - b.order || b.pinned - a.pinned); // Sort by order, then by pinned
+  const sortedRecent = sortRecentItems(recent);
   const frag = document.createDocumentFragment();
   const seen = new Set();
   sortedRecent.forEach(r => {
@@ -323,11 +417,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     paging: false
   });
 
+  // Enable drag-and-drop sorting
+  // Initialize this right after table creation, before the first draw.
+  enableDragAndDropSorting(recentTable, db);
+
   // 3. 入力候補データ取得・描画
-  const recent = await getRecentAll(db);
+  let recent = await getRecentAll(db);
   recentTagsMap = getRecentTagsMap(recent);
-  recentTable.clear().rows.add(recent).draw();
-  buildOptionsFromRecent(recent);
+  const sortedRecent = sortRecentItems(recent);
+  recentTable.clear().rows.add(sortedRecent).draw();
+  buildOptionsFromRecent(sortedRecent);
 
   // 4. activitiesMaster の初期化
   const acts = await getAllActivities(db);
@@ -597,31 +696,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       e.preventDefault();
       const draggingRow = tbody.querySelector('.dragging');
       const targetRow = e.target.closest('tr');
-      if (draggingRow && targetRow && draggingRow !== targetRow) {
-        const draggingIndex = draggingRow.rowIndex;
-        const targetIndex = targetRow.rowIndex;
-        if (draggingIndex < targetIndex) {
-          tbody.insertBefore(draggingRow, targetRow.nextSibling);
-        } else {
-          tbody.insertBefore(draggingRow, targetRow);
-        }
+      if (!draggingRow || !targetRow || draggingRow === targetRow) {
+        return;
+      }
+      const draggingData = table.row(draggingRow).data();
+      const targetData = table.row(targetRow).data();
+
+      // Prevent dragging between pinned and unpinned sections
+      if (draggingData.pinned !== targetData.pinned) {
+        e.dataTransfer.dropEffect = 'none'; // Disallow drop
+        return;
+      }
+      e.dataTransfer.dropEffect = 'move';
+
+      const draggingIndex = draggingRow.rowIndex;
+      const targetIndex = targetRow.rowIndex;
+      if (draggingIndex < targetIndex) {
+        tbody.insertBefore(draggingRow, targetRow.nextSibling);
+      } else {
+        tbody.insertBefore(draggingRow, targetRow);
       }
     });
 
     tbody.addEventListener('dragend', async () => {
       const rows = Array.from(tbody.querySelectorAll('tr'));
-      const updatedOrder = rows.map((row) => table.row(row).data());
-      updatedOrder.forEach((item, index) => {
-        item.order = index; // Update order property
+      const updatedData = rows.map((row) => table.row(row).data());
+
+      // Update order property for each item based on its new DOM position
+      updatedData.forEach((item, index) => {
+        item.order = index;
       });
 
       // Save the updated order to the database
       await withStore(db, STORES.recent, 'readwrite', (store) => {
-        updatedOrder.forEach((item) => store.put(item));
+        updatedData.forEach((item) => store.put(item));
       });
 
-      // Update the datalist options
-      buildOptionsFromRecent(updatedOrder);
+      // Update the datalist options, ensuring it's sorted correctly
+      const allRecent = await getRecentAll(db);
+      const sorted = sortRecentItems(allRecent);
+      buildOptionsFromRecent(sorted);
 
       // Remove dragging class
       rows.forEach((row) => row.classList.remove('dragging'));
@@ -634,9 +748,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     });
   }
-
-  // Enable drag-and-drop sorting
-  enableDragAndDropSorting(recentTable, db);
 
   // Settings UI wiring
   const ticketUrlTemplateInput = document.getElementById('ticketUrlTemplate');
@@ -669,10 +780,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       const row = recentTable.row(tr);
       const data = row.data();
       const newPinnedState = !data.pinned;
-      await setPinned(db, data.text, newPinnedState);
-      const updated = await getRecentAll(db);
-      recentTable.clear().rows.add(updated).draw(false);
-      buildOptionsFromRecent(updated);
+      const updatedRecent = await updateRecentOrderForPinToggle(db, data.text, newPinnedState);
+      recentTable.clear().rows.add(updatedRecent).draw(false);
+      buildOptionsFromRecent(updatedRecent);
       return;
     }
 
@@ -725,14 +835,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     activitiesMaster.push(activity);
     renderActivities();
 
-    // 既存のタグを維持して recent を更新
-    const existing = recentTagsMap.get(task);
-    await upsertRecent(db, task, existing ? { tags: existing } : {});
+    // 新しいタスクの並び順を更新し、UIに反映
+    const updatedRecent = await updateRecentOrderForNewTask(db, task);
     await trimRecentUnpinned(db, 30);
-    const updatedRecent = await getRecentAll(db);
-    recentTagsMap = getRecentTagsMap(updatedRecent);
-    recentTable.clear().rows.add(updatedRecent).draw(false);
-    buildOptionsFromRecent(updatedRecent);
+    const finalRecent = await getRecentAll(db); // trimming後再取得
+    recentTagsMap = getRecentTagsMap(finalRecent);
+    const sortedFinal = sortRecentItems(finalRecent);
+    recentTable.clear().rows.add(sortedFinal).draw(false);
+    buildOptionsFromRecent(sortedFinal);
 
     // UI feedback
     saveStatus.textContent = '保存しました';
@@ -839,14 +949,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const activity = { task, startTime: startIso, endTime: endIso };
         await withStore(db, STORES.activities, 'readwrite', (store) => store.put(activity));
         activitiesMaster.push(activity);
-        // 既存のタグを維持して recent を更新
-        const existing = recentTagsMap.get(task);
-        await upsertRecent(db, task, existing ? { tags: existing } : {});
+        // 新しいタスクの並び順を更新
+        const updatedRecent = await updateRecentOrderForNewTask(db, task);
         await trimRecentUnpinned(db, 30);
-        const updatedRecent = await getRecentAll(db);
-        recentTagsMap = getRecentTagsMap(updatedRecent);
-        recentTable.clear().rows.add(updatedRecent).draw(false);
-        buildOptionsFromRecent(updatedRecent);
+        const finalRecent = await getRecentAll(db);
+        recentTagsMap = getRecentTagsMap(finalRecent);
+        const sortedFinal = sortRecentItems(finalRecent);
+        recentTable.clear().rows.add(sortedFinal).draw(false);
+        buildOptionsFromRecent(sortedFinal);
       } else {
         // editing
         const original = originalEndTime;
@@ -865,13 +975,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const idx = activitiesMaster.findIndex(a => a.endTime === endIso);
         if (idx >= 0) activitiesMaster[idx] = activity; else activitiesMaster.push(activity);
         // 既存のタグを維持して recent を更新
-        const existing = recentTagsMap.get(task);
-        await upsertRecent(db, task, existing ? { tags: existing } : {});
+        const updatedRecent = await updateRecentOrderForNewTask(db, task);
         await trimRecentUnpinned(db, 30);
-        const updatedRecent = await getRecentAll(db);
-        recentTagsMap = getRecentTagsMap(updatedRecent);
-        recentTable.clear().rows.add(updatedRecent).draw(false);
-        buildOptionsFromRecent(updatedRecent);
+        const finalRecent = await getRecentAll(db);
+        recentTagsMap = getRecentTagsMap(finalRecent);
+        const sortedFinal = sortRecentItems(finalRecent);
+        recentTable.clear().rows.add(sortedFinal).draw(false);
+        buildOptionsFromRecent(sortedFinal);
       }
 
       closeModal();
