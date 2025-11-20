@@ -1058,10 +1058,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     modal.innerHTML = `
       <div style="background:#1e293b; color:#e5e7eb; border-radius:10px; padding:18px 18px 12px 18px; min-width:320px; box-shadow:0 8px 32px #0008;">
         <div style="font-weight:600; margin-bottom:8px;">タグ編集</div>
-        <input id="tagEditInput" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0c1428;color:#e5e7eb;" placeholder="カンマ区切りで入力" value="${currentTags.join(',')}" />
+        <input id="tagEditInput" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #334155;background:#0c1428;color:#e5e7eb;box-sizing:border-box;" placeholder="カンマ区切りで入力" value="${currentTags.join(',')}" />
         <div style="margin:10px 0 4px 0; font-size:0.95em;">タグ候補:</div>
         <div id="tagCandidateList" style="display:flex; flex-wrap:wrap; gap:6px 8px; margin-bottom:10px;">
-          ${tagCandidates.map(t => `<span class="tag tag-candidate" style="cursor:pointer;user-select:none;background:#334155;color:#a7f3d0;padding:2px 8px;border-radius:6px;">${escapeHtml(t)}</span>`).join('')}
+          ${tagCandidates.map(t => `
+            <span class="tag tag-candidate" style="user-select:none;background:#334155;color:#a7f3d0;padding:2px 4px 2px 8px;border-radius:6px; display:inline-flex; align-items:center; gap: 5px;">
+              <span style="cursor:pointer;">${escapeHtml(t)}</span>
+              <span class="delete-tag-btn" data-tag="${escapeHtml(t)}" title="このタグをすべての候補から削除" style="cursor:pointer; font-weight:bold; color: #fca5a5; padding: 0 4px; line-height: 1; border-radius: 4px; font-size:1.2em;">&times;</span>
+            </span>
+          `).join('')}
         </div>
         <div style="display:flex; gap:10px; justify-content:flex-end;">
           <button id="tagEditCancel" style="padding:6px 14px;border-radius:6px;border:1px solid #334155;background:#0c1428;color:#e5e7eb;">キャンセル</button>
@@ -1074,16 +1079,68 @@ document.addEventListener('DOMContentLoaded', async () => {
     const input = modal.querySelector('#tagEditInput');
     let isComposing = false;
 
-    // 候補クリックで追加
-    modal.querySelectorAll('.tag-candidate').forEach(el => {
-      el.addEventListener('click', () => {
-        const val = input.value.trim();
-        const tags = val ? val.split(',').map(s => s.trim()).filter(Boolean) : [];
-        const tag = el.textContent;
-        if (!tags.includes(tag)) tags.push(tag);
-        input.value = tags.join(',');
+    // --- Tag Editor Refactored Logic ---
+
+    // 3. Renders the tag candidate list and attaches event listeners
+    function renderTagCandidates(modal, tagCandidates, inputEl, deleteHandler) {
+      const candidateListEl = modal.querySelector('#tagCandidateList');
+      if (!candidateListEl) return;
+
+      candidateListEl.innerHTML = tagCandidates.map(t => `
+        <span class="tag tag-candidate" style="user-select:none;background:#334155;color:#a7f3d0;padding:2px 4px 2px 8px;border-radius:6px; display:inline-flex; align-items:center; gap: 5px;">
+          <span class="add-tag-btn" style="cursor:pointer;">${escapeHtml(t)}</span>
+          <span class="delete-tag-btn" data-tag="${escapeHtml(t)}" title="このタグをすべての候補から削除" style="cursor:pointer; font-weight:bold; color: #fca5a5; padding: 0 4px; line-height: 1; border-radius: 4px; font-size:1.2em;">&times;</span>
+        </span>
+      `).join('');
+
+      // Attach listener for adding a tag
+      candidateListEl.querySelectorAll('.add-tag-btn').forEach(el => {
+        el.addEventListener('click', () => {
+          const val = inputEl.value.trim();
+          const tags = val ? val.split(',').map(s => s.trim()).filter(Boolean) : [];
+          const tag = el.textContent;
+          if (!tags.includes(tag)) tags.push(tag);
+          inputEl.value = tags.join(',');
+        });
       });
-    });
+
+      // Attach listener for deleting a tag
+      candidateListEl.querySelectorAll('.delete-tag-btn').forEach(btn => {
+        btn.addEventListener('click', deleteHandler);
+      });
+    }
+
+    // 2. Handles the tag deletion process
+    async function handleTagDelete(e) {
+      const tagToDelete = e.target.dataset.tag;
+      if (!tagToDelete) return;
+      const ok = confirm(`タグ「${tagToDelete}」をすべての入力候補から削除しますか？この操作は元に戻せません。`);
+      if (!ok) return;
+
+      const db = await openDB();
+      const allRecent = await getRecentAll(db);
+      const updatedRecent = allRecent.map(item => {
+        if (Array.isArray(item.tags) && item.tags.includes(tagToDelete)) {
+          item.tags = item.tags.filter(t => t !== tagToDelete);
+        }
+        return item;
+      });
+      await withStore(db, STORES.recent, 'readwrite', (store) => {
+        updatedRecent.forEach(item => store.put(item));
+      });
+
+      // UI Update
+      const newTagCandidates = getAllTagCandidates(updatedRecent);
+      renderTagCandidates(modal, newTagCandidates, input, handleTagDelete); // Re-render the list
+      recentTagsMap = getRecentTagsMap(updatedRecent);
+      const sorted = sortRecentItems(updatedRecent);
+      recentTable.clear().rows.add(sorted).draw(false);
+      buildOptionsFromRecent(sorted);
+      renderActivities();
+    }
+
+    // 1. Initial setup when the modal is created
+    renderTagCandidates(modal, tagCandidates, input, handleTagDelete);
 
     // 保存処理
     const saveTags = async () => {
@@ -1093,8 +1150,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // テーブル・入力候補・タグMap・アクティビティテーブルを更新
       const updated = await getRecentAll(await openDB());
       recentTagsMap = getRecentTagsMap(updated);
-      recentTable.clear().rows.add(updated).draw(false);
-      buildOptionsFromRecent(updated);
+      const sorted = sortRecentItems(updated); // ピン留め順を維持するためにソート
+      recentTable.clear().rows.add(sorted).draw(false);
+      buildOptionsFromRecent(sorted);
       renderActivities();
       document.body.removeChild(modal);
     };
@@ -1146,8 +1204,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // タグクリックで「Search」に自動入力＆検索
-  document.addEventListener('click', (e) => {
+  // タグクリックで「Search」に自動入力＆検索 (activitiesTable内のみ)
+  document.querySelector('#activitiesTable').addEventListener('click', (e) => {
     const tagEl = e.target.closest('.tag-searchable');
     if (tagEl && tagEl.dataset && tagEl.dataset.tag) {
       // DataTables v2 APIで検索
