@@ -137,15 +137,15 @@ async function getAllActivities(db) {
 }
 
 async function upsertRecent(db, text, opts = {}) {
-  const rec = await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(STORES.recent, 'readwrite');
     const store = tx.objectStore(STORES.recent);
     const getReq = store.get(text);
     getReq.onsuccess = () => {
-      const exists = getReq.result;
+      const existing = getReq.result || {};
       const next = {
+        ...existing,
         text,
-        pinned: exists ? !!exists.pinned : false,
         lastUsed: Date.now(),
         ...opts,
       };
@@ -155,7 +155,6 @@ async function upsertRecent(db, text, opts = {}) {
     tx.oncomplete = () => resolve(true);
     tx.onerror = () => reject(tx.error);
   });
-  return rec;
 }
 
 async function trimRecentUnpinned(db, keep = 30) {
@@ -774,6 +773,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 0);
   }
 
+  // Shared logic to update recent list and re-render UI components
+  async function updateRecentAndRerender(task) {
+    // Re-order recent items based on the new task usage.
+    const allRecent = await getRecentAll(db);
+    const savedItem = allRecent.find(r => r.text === task);
+
+    // If the item is pinned, we only update its lastUsed time and don't change any order.
+    if (savedItem && savedItem.pinned) {
+      await upsertRecent(db, task, { tags: savedItem.tags || [] });
+    } else {
+      // For unpinned or new items, move to the top of the unpinned list.
+      const pinnedItems = allRecent.filter(r => r.pinned);
+      const unpinnedItems = allRecent.filter(r => !r.pinned && r.text !== task);
+
+      const existingTags = (savedItem && savedItem.tags) || [];
+      const newItem = { text: task, pinned: false, lastUsed: Date.now(), tags: existingTags };
+
+      const reorderedRecent = [...pinnedItems, newItem, ...unpinnedItems];
+      reorderedRecent.forEach((item, index) => {
+        item.order = index;
+      });
+
+      await withStore(db, STORES.recent, 'readwrite', (store) => {
+        reorderedRecent.forEach(item => store.put(item));
+      });
+    }
+
+    await trimRecentUnpinned(db, 30);
+    const updatedRecent = await getRecentAll(db);
+
+    // Sort data for UI display (table and datalist)
+    const sortedForDisplay = [...updatedRecent].sort((a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0)));
+
+    recentTagsMap = getRecentTagsMap(sortedForDisplay);
+    recentTable.clear().rows.add(sortedForDisplay).draw(false);
+    buildOptionsFromRecent(sortedForDisplay);
+  }
+
   async function saveTask() {
     const task = (taskInput.value || '').trim();
     if (!task) {
@@ -793,41 +830,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     activitiesMaster.push(activity);
     renderActivities();
 
-    // Re-order recent items based on the new task usage.
-    const allRecent = await getRecentAll(db);
-    const savedItem = allRecent.find(r => r.text === task);
-
-    // If the item is pinned, we only update its lastUsed time and don't change any order.
-    if (savedItem && savedItem.pinned) {
-      const existing = recentTagsMap.get(task);
-      await upsertRecent(db, task, existing ? { tags: existing } : {});
-    } else {
-      // For unpinned or new items, move to the top of the unpinned list.
-      const pinnedItems = allRecent.filter(r => r.pinned);
-      const unpinnedItems = allRecent.filter(r => !r.pinned && r.text !== task);
-
-      const existingTags = recentTagsMap.get(task) || (savedItem ? savedItem.tags : []);
-      const newItem = { text: task, pinned: false, lastUsed: Date.now(), tags: existingTags };
-
-      const reorderedRecent = [...pinnedItems, ...newItem, ...unpinnedItems];
-      reorderedRecent.forEach((item, index) => {
-        item.order = index;
-      });
-
-      await withStore(db, STORES.recent, 'readwrite', (store) => {
-        reorderedRecent.forEach(item => store.put(item));
-      });
-    }
-
-    await trimRecentUnpinned(db, 30);
-    const updatedRecent = await getRecentAll(db);
-
-    // Sort data for UI display (table and datalist)
-    const sortedForDisplay = [...updatedRecent].sort((a, b) => (b.pinned - a.pinned) || ((a.order || 0) - (b.order || 0)));
-
-    recentTagsMap = getRecentTagsMap(sortedForDisplay);
-    recentTable.clear().rows.add(sortedForDisplay).draw(false);
-    buildOptionsFromRecent(sortedForDisplay);
+    await updateRecentAndRerender(task);
 
     // UI feedback
     saveStatus.textContent = '保存しました';
@@ -934,14 +937,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const activity = { task, startTime: startIso, endTime: endIso };
         await withStore(db, STORES.activities, 'readwrite', (store) => store.put(activity));
         activitiesMaster.push(activity);
-        // 既存のタグを維持して recent を更新
-        const existing = recentTagsMap.get(task);
-        await upsertRecent(db, task, existing ? { tags: existing } : {});
-        await trimRecentUnpinned(db, 30);
-        const updatedRecent = await getRecentAll(db);
-        recentTagsMap = getRecentTagsMap(updatedRecent);
-        recentTable.clear().rows.add(updatedRecent).draw(false);
-        buildOptionsFromRecent(updatedRecent);
+        await updateRecentAndRerender(task);
       } else {
         // editing
         const original = originalEndTime;
@@ -959,14 +955,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Update master (replace or add)
         const idx = activitiesMaster.findIndex(a => a.endTime === endIso);
         if (idx >= 0) activitiesMaster[idx] = activity; else activitiesMaster.push(activity);
-        // 既存のタグを維持して recent を更新
-        const existing = recentTagsMap.get(task);
-        await upsertRecent(db, task, existing ? { tags: existing } : {});
-        await trimRecentUnpinned(db, 30);
-        const updatedRecent = await getRecentAll(db);
-        recentTagsMap = getRecentTagsMap(updatedRecent);
-        recentTable.clear().rows.add(updatedRecent).draw(false);
-        buildOptionsFromRecent(updatedRecent);
+        await updateRecentAndRerender(task);
       }
 
       closeModal();
