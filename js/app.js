@@ -1203,8 +1203,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // タグクリックで「Search」に自動入力＆検索
-  document.addEventListener('click', (e) => {
+  // タグクリックで「Search」に自動入力＆検索 (activitiesTable内のみ)
+  document.querySelector('#activitiesTable').addEventListener('click', (e) => {
     const tagEl = e.target.closest('.tag-searchable');
     if (tagEl && tagEl.dataset && tagEl.dataset.tag) {
       // DataTables v2 APIで検索
