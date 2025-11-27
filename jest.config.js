@@ -2,7 +2,7 @@
 const config = {
   testEnvironment: 'jsdom',
   collectCoverage: true,
-  coverageReporters: ['json', 'lcov', 'text', 'clover'],
+  coverageReporters: ['json', 'lcov', 'text', 'clover', 'json-summary'],
   coverageDirectory: 'coverage',
   transform: {
     '^.+\\.js$': './jest-preprocess.js',
