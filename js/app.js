@@ -202,7 +202,7 @@ async function deleteRecent(db, text) {
 }
 
 // On new task, update order: unpinned go to top of unpinned list.
-async function updateRecentOrderForNewTask(db, task) {
+async function updateRecentOrderForNewTask(db, task, recentTagsMap) {
   const allRecent = await getRecentAll(db);
   const existing = allRecent.find(r => r.text === task);
 
@@ -283,11 +283,6 @@ async function updateRecentOrderForPinToggle(db, task, newPinnedState) {
   return reorderedRecent;
 }
 
-// グローバル宣言
-let recentTable;
-let recentTagsMap = new Map();
-let activitiesMaster = [];
-
 // Seed default pinned suggestions (one-time)
 const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v5'; // バージョンを更新
 async function seedPinnedDefaults(db) {
@@ -341,8 +336,10 @@ function buildOptionsFromRecent(recent) {
     frag.appendChild(opt);
   });
   const datalist = document.getElementById('taskOptions');
-  datalist.innerHTML = '';
-  datalist.appendChild(frag);
+  if (datalist) {
+    datalist.innerHTML = '';
+    datalist.appendChild(frag);
+  }
 }
 
 function buildDuration(startIso, endIso) {
@@ -378,14 +375,99 @@ function getAllTagCandidates(recent) {
   return Array.from(tagSet).filter(Boolean);
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+// Activities DB helpers
+async function deleteActivityByEnd(db, endTime) {
+  if (!endTime) return false;
+  await withStore(db, STORES.activities, 'readwrite', (store) => store.delete(endTime));
+  return true;
+}
+
+async function getActivityByEnd(db, endTime) {
+  if (!endTime) return null;
+  return withStore(db, STORES.activities, 'readonly', (store) => store.get(endTime));
+}
+
+// Helper: YYYY-MM-DD (local) from ISO string
+const toLocalYMD = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+// Render activities with current filter/grouping settings
+function renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings) {
+  const filterDateFromInput = document.getElementById('filterDateFrom');
+  const filterDateToInput = document.getElementById('filterDateTo');
+  const groupToggle = document.getElementById('groupToggle');
+
+  const fromYMD = (filterDateFromInput && filterDateFromInput.value) ? filterDateFromInput.value : '';
+  const toYMD = (filterDateToInput && filterDateToInput.value) ? filterDateToInput.value : '';
+  const doGroup = !!(groupToggle && groupToggle.checked);
+  let rows = [];
+
+  const filtered = (fromYMD || toYMD)
+    ? activitiesMaster.filter(a => {
+        const d = toLocalYMD(a.endTime);
+        if (fromYMD && d < fromYMD) return false;
+        if (toYMD && d > toYMD) return false;
+        return true;
+      })
+    : activitiesMaster.slice();
+
+  // 「集計対象外」タグ付きの作業内容を「作業別に集計」の時は除外
+  const filtered2 = doGroup
+    ? filtered.filter(a => {
+        const tags = recentTagsMap.get(a.task) || [];
+        return !tags.includes('集計対象外');
+      })
+    : filtered;
+
+  if (doGroup) {
+    const map = new Map();
+    for (const a of filtered2) {
+      const key = a.task || '';
+      const cur = map.get(key) || {
+        task: key,
+        startTime: a.startTime,
+        endTime: a.endTime,
+        _durationMs: 0
+      };
+      // min start, max end
+      if (a.startTime < cur.startTime) cur.startTime = a.startTime;
+      if (a.endTime > cur.endTime) cur.endTime = a.endTime;
+      cur._durationMs += Math.max(0, new Date(a.endTime) - new Date(a.startTime));
+      map.set(key, cur);
+    }
+    rows = Array.from(map.values()).map(r => ({
+      task: r.task,
+      startTime: r.startTime,
+      endTime: r.endTime,
+      duration: msToHMS(r._durationMs)
+    }));
+  } else {
+    rows = filtered2.map(a => ({
+      ...a,
+      duration: buildDuration(a.startTime, a.endTime)
+    }));
+  }
+
+  // Sort by endTime asc (古い完了日が上になるように)
+  rows.sort((a, b) => a.endTime.localeCompare(b.endTime));
+  activitiesTable.clear().rows.add(rows).draw(false);
+}
+
+async function init() {
+  if (typeof document === 'undefined') return;
   const db = await openDB();
 
   // 1. デフォルト候補を必ず先に投入
   await seedPinnedDefaults(db);
 
   // 2. recentTable の初期化
-  recentTable = new DataTable('#recentTable', {
+  const recentTable = new DataTable('#recentTable', {
     data: [],
     columns: [
       {
@@ -423,21 +505,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 3. 入力候補データ取得・描画
   let recent = await getRecentAll(db);
-  recentTagsMap = getRecentTagsMap(recent);
+  let recentTagsMap = getRecentTagsMap(recent);
   const sortedRecent = sortRecentItems(recent);
   recentTable.clear().rows.add(sortedRecent).draw();
   buildOptionsFromRecent(sortedRecent);
 
   // 4. activitiesMaster の初期化
   const acts = await getAllActivities(db);
-  activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
-
-  // State for activities master list (for filtering / grouping)
-  // let activitiesMaster = []; ← この行を削除
+  let activitiesMaster = Array.isArray(acts) ? acts.slice() : [];
 
   // Settings state
   let settings = loadSettings();
-  // CSVエクスポートは DataTables Buttons を使用するため、個別保持は不要
 
   // UI要素取得
   const filterDateFromInput = document.getElementById('filterDateFrom');
@@ -473,17 +551,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return d.toISOString();
   };
 
-  // Activities DB helpers
-  async function deleteActivityByEnd(db, endTime) {
-    if (!endTime) return false;
-    await withStore(db, STORES.activities, 'readwrite', (store) => store.delete(endTime));
-    return true;
-  }
-  async function getActivityByEnd(db, endTime) {
-    if (!endTime) return null;
-    return withStore(db, STORES.activities, 'readonly', (store) => store.get(endTime));
-  }
-
   // Modal state
   let editing = false;
   let originalEndTime = null;
@@ -504,74 +571,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (modalEl) modalEl.style.display = 'none';
     editing = false;
     originalEndTime = null;
-  }
-
-  // Helper: YYYY-MM-DD (local) from ISO string
-  const toLocalYMD = (iso) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  // Render activities with current filter/grouping settings
-  function renderActivities() {
-    const fromYMD = (filterDateFromInput && filterDateFromInput.value) ? filterDateFromInput.value : '';
-    const toYMD = (filterDateToInput && filterDateToInput.value) ? filterDateToInput.value : '';
-    const doGroup = !!(groupToggle && groupToggle.checked);
-    let rows = [];
-
-    const filtered = (fromYMD || toYMD)
-      ? activitiesMaster.filter(a => {
-          const d = toLocalYMD(a.endTime);
-          if (fromYMD && d < fromYMD) return false;
-          if (toYMD && d > toYMD) return false;
-          return true;
-        })
-      : activitiesMaster.slice();
-
-    // 「集計対象外」タグ付きの作業内容を「作業別に集計」の時は除外
-    const filtered2 = doGroup
-      ? filtered.filter(a => {
-          const tags = recentTagsMap.get(a.task) || [];
-          return !tags.includes('集計対象外');
-        })
-      : filtered;
-
-    if (doGroup) {
-      const map = new Map();
-      for (const a of filtered2) {
-        const key = a.task || '';
-        const cur = map.get(key) || {
-          task: key,
-          startTime: a.startTime,
-          endTime: a.endTime,
-          _durationMs: 0
-        };
-        // min start, max end
-        if (a.startTime < cur.startTime) cur.startTime = a.startTime;
-        if (a.endTime > cur.endTime) cur.endTime = a.endTime;
-        cur._durationMs += Math.max(0, new Date(a.endTime) - new Date(a.startTime));
-        map.set(key, cur);
-      }
-      rows = Array.from(map.values()).map(r => ({
-        task: r.task,
-        startTime: r.startTime,
-        endTime: r.endTime,
-        duration: msToHMS(r._durationMs)
-      }));
-    } else {
-      rows = filtered2.map(a => ({
-        ...a,
-        duration: buildDuration(a.startTime, a.endTime)
-      }));
-    }
-
-    // Sort by endTime asc (古い完了日が上になるように)
-    rows.sort((a, b) => a.endTime.localeCompare(b.endTime));
-    activitiesTable.clear().rows.add(rows).draw(false);
   }
 
   // Tabs behavior
@@ -833,10 +832,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Update master list and re-render table
     activitiesMaster.push(activity);
-    renderActivities();
+    renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
 
     // 新しいタスクの並び順を更新し、UIに反映
-    const updatedRecent = await updateRecentOrderForNewTask(db, task);
+    const updatedRecent = await updateRecentOrderForNewTask(db, task, recentTagsMap);
     await trimRecentUnpinned(db, 30);
     const finalRecent = await getRecentAll(db); // trimming後再取得
     recentTagsMap = getRecentTagsMap(finalRecent);
@@ -874,14 +873,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (filterDateFromInput.value && !filterDateToInput.value) {
         filterDateToInput.value = filterDateFromInput.value;
       }
-      renderActivities();
+      renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
     });
   }
   if (filterDateToInput) {
-    filterDateToInput.addEventListener('change', renderActivities);
+    filterDateToInput.addEventListener('change', () => renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings));
   }
   if (groupToggle) {
-    groupToggle.addEventListener('change', renderActivities);
+    groupToggle.addEventListener('change', () => renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings));
   }
   if (clearFilterBtn) {
     clearFilterBtn.addEventListener('click', () => {
@@ -889,7 +888,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (filterDateToInput) filterDateToInput.value = '';
       // 併せて「作業別に集計」もオフにする
       if (groupToggle) groupToggle.checked = false;
-      renderActivities();
+      renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
     });
   }
 
@@ -950,7 +949,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await withStore(db, STORES.activities, 'readwrite', (store) => store.put(activity));
         activitiesMaster.push(activity);
         // 新しいタスクの並び順を更新
-        const updatedRecent = await updateRecentOrderForNewTask(db, task);
+        const updatedRecent = await updateRecentOrderForNewTask(db, task, recentTagsMap);
         await trimRecentUnpinned(db, 30);
         const finalRecent = await getRecentAll(db);
         recentTagsMap = getRecentTagsMap(finalRecent);
@@ -975,7 +974,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const idx = activitiesMaster.findIndex(a => a.endTime === endIso);
         if (idx >= 0) activitiesMaster[idx] = activity; else activitiesMaster.push(activity);
         // 既存のタグを維持して recent を更新
-        const updatedRecent = await updateRecentOrderForNewTask(db, task);
+        const updatedRecent = await updateRecentOrderForNewTask(db, task, recentTagsMap);
         await trimRecentUnpinned(db, 30);
         const finalRecent = await getRecentAll(db);
         recentTagsMap = getRecentTagsMap(finalRecent);
@@ -985,7 +984,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       closeModal();
-      renderActivities();
+      renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
     });
   }
 
@@ -1029,7 +1028,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (err) {
         console.warn('startTime 調整中にエラー:', err);
       }
-      renderActivities();
+      renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
     }
   });
 
@@ -1136,7 +1135,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const sorted = sortRecentItems(updatedRecent);
       recentTable.clear().rows.add(sorted).draw(false);
       buildOptionsFromRecent(sorted);
-      renderActivities();
+      renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
     }
 
     // 1. Initial setup when the modal is created
@@ -1153,7 +1152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const sorted = sortRecentItems(updated); // ピン留め順を維持するためにソート
       recentTable.clear().rows.add(sorted).draw(false);
       buildOptionsFromRecent(sorted);
-      renderActivities();
+      renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
       document.body.removeChild(modal);
     };
 
@@ -1225,5 +1224,48 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // 最後に初回描画
-  renderActivities();
-});
+  renderActivities(activitiesTable, activitiesMaster, recentTagsMap, settings);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', init);
+}
+
+// Export for testing
+if (typeof module !== 'undefined') {
+  module.exports = {
+    nowIso,
+    fmtLocal,
+    msToHMS,
+    escapeHtml,
+    loadSettings,
+    saveSettings,
+    linkifyTask,
+    openDB,
+    withStore,
+    getLastActivity,
+    getAllActivities,
+    upsertRecent,
+    trimRecentUnpinned,
+    setPinned,
+    getRecentAll,
+    deleteRecent,
+    updateRecentOrderForNewTask,
+    updateRecentOrderForPinToggle,
+    seedPinnedDefaults,
+    sortRecentItems,
+    buildOptionsFromRecent,
+    buildDuration,
+    renderTags,
+    getRecentTagsMap,
+    getAllTagCandidates,
+    deleteActivityByEnd,
+    getActivityByEnd,
+    toLocalYMD,
+    renderActivities,
+    init,
+    STORES,
+    SETTINGS_KEY,
+    SEEDED_FLAG
+  };
+}
