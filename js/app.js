@@ -283,6 +283,25 @@ async function updateRecentOrderForPinToggle(db, task, newPinnedState) {
   return reorderedRecent;
 }
 
+// After deletion, re-index the order of remaining items.
+async function reorderAndSaveRecent(db) {
+  const allItems = await getRecentAll(db);
+  // sortRecentItems handles pinned/unpinned separation and existing order
+  const sorted = sortRecentItems(allItems);
+
+  // Re-assign sequential order
+  sorted.forEach((item, index) => {
+    item.order = index;
+  });
+
+  // Save the updated items back to the database
+  await withStore(db, STORES.recent, 'readwrite', (store) => {
+    sorted.forEach((item) => store.put(item));
+  });
+
+  return sorted;
+}
+
 // Seed default pinned suggestions (one-time)
 const SEEDED_FLAG = 'doneTime.seededPinnedDefaults.v5'; // バージョンを更新
 async function seedPinnedDefaults(db) {
@@ -323,18 +342,25 @@ function sortRecentItems(items) {
   return [...pinned, ...unpinned];
 }
 
-// Update buildOptionsFromRecent to respect the order property
-function buildOptionsFromRecent(recent) {
+// Update buildOptionsFromRecent to respect order and apply suggestion limit.
+function buildOptionsFromRecent(recent, limit = 30) {
   const sortedRecent = sortRecentItems(recent);
+  const pinned = sortedRecent.filter(r => r.pinned);
+  const unpinned = sortedRecent.filter(r => !r.pinned);
+
+  // Apply limit only to unpinned items
+  const suggestions = [...pinned, ...unpinned.slice(0, limit)];
+
   const frag = document.createDocumentFragment();
   const seen = new Set();
-  sortedRecent.forEach(r => {
+  suggestions.forEach(r => {
     if (seen.has(r.text)) return;
     seen.add(r.text);
     const opt = document.createElement('option');
     opt.value = r.text;
     frag.appendChild(opt);
   });
+
   const datalist = document.getElementById('taskOptions');
   if (datalist) {
     datalist.innerHTML = '';
@@ -795,9 +821,10 @@ async function init() {
       const ok = confirm(`「${text}」を入力候補から削除しますか？`);
       if (!ok) return;
       await deleteRecent(db, text);
-      const updated = await getRecentAll(db);
-      recentTable.clear().rows.add(updated).draw(false);
-      buildOptionsFromRecent(updated);
+      // Re-order the remaining items and save
+      const updatedAndReordered = await reorderAndSaveRecent(db);
+      recentTable.clear().rows.add(updatedAndReordered).draw(false);
+      buildOptionsFromRecent(updatedAndReordered);
     }
   });
 
@@ -836,8 +863,7 @@ async function init() {
 
     // 新しいタスクの並び順を更新し、UIに反映
     const updatedRecent = await updateRecentOrderForNewTask(db, task, recentTagsMap);
-    await trimRecentUnpinned(db, 30);
-    const finalRecent = await getRecentAll(db); // trimming後再取得
+    const finalRecent = await getRecentAll(db);
     recentTagsMap = getRecentTagsMap(finalRecent);
     const sortedFinal = sortRecentItems(finalRecent);
     recentTable.clear().rows.add(sortedFinal).draw(false);
@@ -950,7 +976,6 @@ async function init() {
         activitiesMaster.push(activity);
         // 新しいタスクの並び順を更新
         const updatedRecent = await updateRecentOrderForNewTask(db, task, recentTagsMap);
-        await trimRecentUnpinned(db, 30);
         const finalRecent = await getRecentAll(db);
         recentTagsMap = getRecentTagsMap(finalRecent);
         const sortedFinal = sortRecentItems(finalRecent);
@@ -975,7 +1000,6 @@ async function init() {
         if (idx >= 0) activitiesMaster[idx] = activity; else activitiesMaster.push(activity);
         // 既存のタグを維持して recent を更新
         const updatedRecent = await updateRecentOrderForNewTask(db, task, recentTagsMap);
-        await trimRecentUnpinned(db, 30);
         const finalRecent = await getRecentAll(db);
         recentTagsMap = getRecentTagsMap(finalRecent);
         const sortedFinal = sortRecentItems(finalRecent);
