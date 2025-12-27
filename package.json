@@ -15,6 +15,7 @@
     "build": "webpack --config webpack.config.prod.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "copy-webpack-plugin": "^11.0.0",
     "core-js": "^3.47.0",
     "fake-indexeddb": "^6.2.5",
